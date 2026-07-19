@@ -84,6 +84,13 @@ describe("offline locale isolation", () => {
     expect(resolveOfflineLocale(language)).toBe(expected);
   });
 
+  it("uses the fallback parser when locale canonicalization fails", () => {
+    vi.spyOn(Intl, "getCanonicalLocales").mockImplementation(() => {
+      throw new RangeError("Unsupported locale tag");
+    });
+    expect(resolveOfflineLocale("de-AT")).toBe("de");
+  });
+
   it("keeps an unsupported first preference from hiding a supported later preference", () => {
     expect(normalizeOfflineLocale("pt-PT")).toBe("x-pokerogue-unsupported");
     expect(normalizeOfflineLocale("ja-JP")).toBe("ja");

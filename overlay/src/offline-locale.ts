@@ -45,7 +45,8 @@ function canonicalizeLocale(language: string): string | undefined {
     try {
       return Intl.getCanonicalLocales(normalized)[0];
     } catch {
-      return;
+      // The fallback parser can still safely extract supported parts from a
+      // non-canonical tag, and keeps behavior consistent with older WebViews.
     }
   }
 
