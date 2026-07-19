@@ -5,6 +5,7 @@ const [serial, packageName] = process.argv.slice(2);
 if (!serial || !packageName) {
   throw new Error("Usage: node e2e/android-e2e.mjs <adb-serial> <package-name>");
 }
+const expectedLanguage = process.env.POKEROGUE_E2E_EXPECTED_LANGUAGE;
 
 function adb(...args) {
   return execFileSync("adb", ["-s", serial, ...args], { encoding: "utf8" }).trim();
@@ -157,7 +158,9 @@ try {
     }
     return {
       canvasCount: document.querySelectorAll("canvas").length,
+      detectedLanguage: localStorage.getItem("pokerogueOfflineLang"),
       networkBlocked,
+      navigatorLanguages: navigator.languages,
       origin: location.origin,
     };
   })()`);
@@ -173,6 +176,7 @@ try {
     initialState.canvasCount === 0
     || !initialState.networkBlocked
     || initialState.origin !== "https://appassets.androidplatform.net"
+    || (expectedLanguage && initialState.detectedLanguage !== expectedLanguage)
     || persisted !== "persisted"
     || permissions.includes("android.permission.INTERNET")
     || pageErrors.length > 0
@@ -182,7 +186,9 @@ try {
     );
   }
 
-  console.log(`Android E2E passed for ${packageName}: local save persisted and network was blocked.`);
+  console.log(
+    `Android E2E passed for ${packageName}: language=${initialState.detectedLanguage}, local save persisted, and network was blocked.`,
+  );
 } finally {
   cdp?.close();
   adb("forward", "--remove", `tcp:${port}`);

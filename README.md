@@ -22,7 +22,9 @@ The two editions use separate application identifiers, so they can be installed 
 
 The unlock-all preset is idempotent and runs when a local save is created or loaded. It preserves player identity and run history while unlocking supported species variants, natures, 31 IVs, abilities, egg moves, passives, cost reductions, modes, achievements, vouchers, and ribbons.
 
-The offline build stores its language choice separately from other PokéRogue installations. Browser locales for Taiwan, Hong Kong, and Macau are normalized to Traditional Chinese; China and Singapore are normalized to Simplified Chinese. A stale official-site `prLang` value therefore cannot silently select Thai.
+The offline build stores its language choice separately from other PokéRogue installations, so a stale official-site `prLang` value cannot silently select Thai. On first launch it checks the operating system's preferred languages in order, saves the first supported match, and keeps that choice until the player changes it in PokéRogue's language settings.
+
+Locale matching is deliberately strict: exact supported locales win; language-wide translations accept region variants such as `de-AT` -> `de`; Taiwan, Hong Kong, and Macau map to Traditional Chinese; China, Singapore, and Malaysia map to Simplified Chinese; and regional Spanish maps to either Spain or LATAM. Ambiguous or unsupported locales (for example bare `zh`, bare `es`, or `pt-PT`) continue to the next system preference, then fall back to English when none match.
 
 ## Electron desktop
 
