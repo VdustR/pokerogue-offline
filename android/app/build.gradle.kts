@@ -59,8 +59,8 @@ android {
         warningsAsErrors = true
         // Keep CI deterministic on the latest stable, mutually supported Android toolchain.
         // The resource checks are false positives: adaptive icons need v26 XML, while the
-        // monochrome layer is correctly supplied by the matching v33 resources. PokéRogue
-        // is a 16:9 canvas game, so the Android shell intentionally stays in sensor landscape.
+        // generated official logo is staged before Gradle resource processing. PokéRogue
+        // stays landscape while respecting the user's normal or reverse landscape preference.
         disable += setOf(
             "AndroidGradlePluginVersion",
             "GradleDependency",

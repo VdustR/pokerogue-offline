@@ -11,6 +11,11 @@ upstream_dir="$(cd "$1" && pwd)"
 patch_file="$builder_dir/patches/upstream.patch"
 overlay_dir="$builder_dir/overlay"
 
+if git -C "$upstream_dir" grep -n -F "safe-area-inset" -- '*.css' '*.html' '*.scss' '*.ts' '*.tsx'; then
+  echo "Upstream now handles display safe-area insets; review Android native cutout padding before updating." >&2
+  exit 1
+fi
+
 git -C "$upstream_dir" apply --check "$patch_file"
 git -C "$upstream_dir" apply "$patch_file"
 

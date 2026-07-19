@@ -7,7 +7,8 @@
         <item name="android:windowNoTitle">true</item>
         <item name="android:windowBackground">#000000</item>
         <item name="android:colorAccent">#F8C53A</item>
-        <item name="android:navigationBarColor">#000000</item>
-        <item name="android:statusBarColor">#000000</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
     </style>
 </resources>

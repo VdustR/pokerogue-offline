@@ -7,4 +7,5 @@ android/app/build/
 android/build/
 android/app/src/normal/assets/
 android/app/src/unlockAll/assets/
+android/app/src/main/res/drawable-nodpi/pokerogue_logo.png
 android/local.properties
