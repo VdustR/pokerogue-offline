@@ -3,12 +3,23 @@ import { isApp } from "#constants/app-constants";
 type OfflineWorkerMessage = {
   type: "OFFLINE_STATUS" | "OFFLINE_PROGRESS" | "OFFLINE_COMPLETE" | "OFFLINE_ERROR";
   ready?: boolean;
+  fallbackReady?: boolean;
   completed?: number;
   total?: number;
   completedBytes?: number;
   totalBytes?: number;
   revision?: string;
   message?: string;
+};
+
+type StandaloneNavigator = Navigator & { standalone?: boolean };
+
+type OfflineIndicator = {
+  panel: HTMLDivElement;
+  status: HTMLDivElement;
+  progress: HTMLDivElement;
+  progressTrack: HTMLDivElement;
+  show: (duration?: number) => void;
 };
 
 function formatBytes(bytes: number): string {
@@ -21,132 +32,224 @@ function formatBytes(bytes: number): string {
   return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
 }
 
-function createInstaller(): {
-  panel: HTMLDivElement;
-  status: HTMLDivElement;
-  progress: HTMLProgressElement;
-  button: HTMLButtonElement;
-} {
+function isInstalledPwa(): boolean {
+  return (
+    window.matchMedia("(display-mode: standalone)").matches
+    || window.matchMedia("(display-mode: fullscreen)").matches
+    || window.matchMedia("(display-mode: minimal-ui)").matches
+    || (navigator as StandaloneNavigator).standalone === true
+  );
+}
+
+function createIndicator(): OfflineIndicator {
   const style = document.createElement("style");
   style.textContent = `
     #offline-installer {
       position: fixed;
-      z-index: 2147483647;
-      right: max(12px, env(safe-area-inset-right));
-      bottom: max(12px, env(safe-area-inset-bottom));
-      width: min(360px, calc(100vw - 24px));
+      z-index: 1000;
+      top: max(10px, env(safe-area-inset-top));
+      left: 50%;
+      width: min(420px, calc(100vw - 24px));
       box-sizing: border-box;
-      padding: 14px;
-      border: 2px solid #ffffff;
+      padding: 8px 12px;
       border-radius: 10px;
-      background: rgba(20, 20, 24, 0.94);
+      background: rgba(18, 20, 24, 0.94);
       color: #ffffff;
-      font: 16px/1.35 system-ui, sans-serif;
-      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.45);
+      font: 600 13px/1.35 system-ui, sans-serif;
+      text-align: center;
+      pointer-events: none;
+      opacity: 0;
+      transform: translate(-50%, -8px);
+      transition: opacity 180ms ease-out, transform 180ms ease-out;
     }
-    #offline-installer[data-ready="true"] { width: auto; padding: 9px 12px; }
-    #offline-installer strong { display: block; margin-bottom: 5px; }
-    #offline-installer progress { width: 100%; margin: 10px 0; accent-color: #57c46c; }
-    #offline-installer button {
-      width: 100%;
-      padding: 9px 12px;
-      border: 0;
-      border-radius: 6px;
-      background: #da3838;
-      color: #ffffff;
-      font: inherit;
-      font-weight: 700;
-      cursor: pointer;
+    #offline-installer[data-visible="true"] {
+      opacity: 1;
+      transform: translate(-50%, 0);
     }
-    #offline-installer button:disabled { cursor: wait; opacity: 0.7; }
+    #offline-progress-track {
+      position: fixed;
+      z-index: 999;
+      right: 0;
+      bottom: 0;
+      left: 0;
+      height: max(3px, env(safe-area-inset-bottom));
+      background: rgba(255, 255, 255, 0.18);
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 180ms ease-out;
+    }
+    #offline-progress-track[data-visible="true"] { opacity: 1; }
+    #offline-progress {
+      width: 0;
+      height: 100%;
+      background: #57c46c;
+      transform-origin: left;
+      transition: width 180ms ease-out;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      #offline-installer,
+      #offline-progress-track,
+      #offline-progress { transition: none; }
+    }
   `;
   document.head.append(style);
 
   const panel = document.createElement("div");
   panel.id = "offline-installer";
   panel.dataset.testid = "offline-installer";
-  panel.innerHTML = `
-    <strong>Offline game files</strong>
-    <div data-testid="offline-status">Checking offline storage…</div>
-    <progress data-testid="offline-progress" value="0" max="1" hidden></progress>
-    <button data-testid="offline-download" type="button" hidden>Download for offline play</button>
-  `;
-  document.body.append(panel);
+  panel.dataset.completed = "0";
+  panel.setAttribute("role", "status");
+  panel.setAttribute("aria-live", "polite");
+  panel.innerHTML = '<div data-testid="offline-status">Preparing offline update…</div>';
+
+  const progressTrack = document.createElement("div");
+  progressTrack.id = "offline-progress-track";
+  progressTrack.setAttribute("aria-hidden", "true");
+  progressTrack.innerHTML = '<div id="offline-progress" data-testid="offline-progress"></div>';
+  document.body.append(panel, progressTrack);
+
+  let hideTimer: number | undefined;
+  const show = (duration = 0): void => {
+    window.clearTimeout(hideTimer);
+    panel.dataset.visible = "true";
+    if (duration > 0) {
+      hideTimer = window.setTimeout(() => {
+        panel.dataset.visible = "false";
+      }, duration);
+    }
+  };
 
   return {
     panel,
     status: panel.querySelector<HTMLDivElement>("[data-testid='offline-status']")!,
-    progress: panel.querySelector<HTMLProgressElement>("[data-testid='offline-progress']")!,
-    button: panel.querySelector<HTMLButtonElement>("[data-testid='offline-download']")!,
+    progress: progressTrack.querySelector<HTMLDivElement>("[data-testid='offline-progress']")!,
+    progressTrack,
+    show,
   };
 }
 
-async function startOfflineInstaller(): Promise<void> {
-  const ui = createInstaller();
+function showReady(ui: OfflineIndicator, revision?: string): void {
+  ui.panel.dataset.ready = "true";
+  ui.status.textContent = `Offline ready · ${revision}`;
+  ui.progress.style.width = "100%";
+  ui.progressTrack.dataset.visible = "false";
+  ui.show(4_000);
+}
 
+function showProgress(ui: OfflineIndicator, message: OfflineWorkerMessage): void {
+  const completed = message.completed ?? 0;
+  const total = Math.max(message.total ?? 1, 1);
+  ui.panel.dataset.completed = String(completed);
+  ui.progress.style.width = `${Math.min((completed / total) * 100, 100)}%`;
+  ui.status.textContent = `Offline update ${completed.toLocaleString()} / ${total.toLocaleString()} · ${formatBytes(message.completedBytes ?? 0)} / ${formatBytes(message.totalBytes ?? 0)}`;
+  ui.progressTrack.dataset.visible = "true";
+}
+
+function handleStatus(ui: OfflineIndicator, message: OfflineWorkerMessage, requestCache: () => Promise<void>): void {
+  if (message.ready) {
+    showReady(ui, message.revision);
+    return;
+  }
+
+  ui.status.textContent = message.fallbackReady
+    ? `Updating offline files in the background · ${formatBytes(message.totalBytes ?? 0)}`
+    : `Preparing ${formatBytes(message.totalBytes ?? 0)} for offline play`;
+  ui.progressTrack.dataset.visible = "true";
+  ui.show(5_000);
+  requestCache().catch(error => console.error("Offline cache request failed:", error));
+}
+
+function handleError(ui: OfflineIndicator, scheduleRetry: () => void): void {
+  ui.status.textContent = navigator.onLine
+    ? "Offline update paused. Retrying automatically…"
+    : "Offline update paused. It will resume when the network returns.";
+  ui.progressTrack.dataset.visible = "false";
+  ui.show(8_000);
+  if (navigator.onLine) {
+    scheduleRetry();
+  }
+}
+
+async function startOfflineInstaller(): Promise<void> {
+  if (!isInstalledPwa()) {
+    return;
+  }
+
+  const ui = createIndicator();
+  ui.show();
   if (!("serviceWorker" in navigator)) {
-    ui.status.textContent = "This browser does not support offline installation.";
+    ui.status.textContent = "Offline mode is unavailable in this browser.";
+    ui.show(8_000);
     return;
   }
 
   let registration: ServiceWorkerRegistration;
   try {
     registration = await navigator.serviceWorker.register("./service-worker.js");
-    await navigator.serviceWorker.ready;
+    await registration.update().catch(() => undefined);
+    registration = await navigator.serviceWorker.ready;
   } catch (error) {
-    ui.status.textContent = `Offline worker failed to start: ${String(error)}`;
+    ui.status.textContent = `Offline update paused: ${String(error)}`;
+    ui.show(8_000);
     return;
   }
 
-  const worker = registration.active ?? registration.waiting ?? registration.installing;
-  if (!worker) {
-    ui.status.textContent = "Offline worker is not available yet. Reload to retry.";
-    return;
-  }
-
-  const requestDownload = async (): Promise<void> => {
-    ui.button.disabled = true;
-    ui.button.textContent = "Downloading…";
-    ui.progress.hidden = false;
-    if (navigator.storage?.persist) {
-      await navigator.storage.persist();
+  let retryTimer: number | undefined;
+  const getWorker = (): ServiceWorker | undefined =>
+    registration.active ?? registration.waiting ?? registration.installing ?? undefined;
+  const requestCache = async (): Promise<void> => {
+    window.clearTimeout(retryTimer);
+    if (!navigator.onLine) {
+      return;
     }
-    worker.postMessage({ type: "CACHE_ALL" });
+    if (navigator.storage?.persist) {
+      await navigator.storage.persist().catch(() => false);
+    }
+    getWorker()?.postMessage({ type: "CACHE_ALL" });
+  };
+  const requestStatus = (): void => {
+    getWorker()?.postMessage({ type: "GET_STATUS" });
+  };
+  const scheduleRetry = (): void => {
+    retryTimer = window.setTimeout(() => {
+      requestCache().catch(error => console.error("Offline cache retry failed:", error));
+    }, 15_000);
   };
 
-  ui.button.addEventListener("click", requestDownload);
+  const handleWorkerMessage = (message: OfflineWorkerMessage): void => {
+    switch (message.type) {
+      case "OFFLINE_STATUS":
+        handleStatus(ui, message, requestCache);
+        break;
+      case "OFFLINE_PROGRESS":
+        showProgress(ui, message);
+        break;
+      case "OFFLINE_COMPLETE":
+        showReady(ui, message.revision);
+        break;
+      case "OFFLINE_ERROR":
+        handleError(ui, scheduleRetry);
+        break;
+    }
+  };
+
   navigator.serviceWorker.addEventListener("message", event => {
-    const message = event.data as OfflineWorkerMessage;
-    if (message.type === "OFFLINE_STATUS") {
-      if (message.ready) {
-        ui.panel.dataset.ready = "true";
-        ui.status.textContent = `Offline ready · ${message.revision}`;
-        ui.button.hidden = true;
-        ui.progress.hidden = true;
-      } else {
-        ui.status.textContent = `Download ${formatBytes(message.totalBytes ?? 0)} once, then the game can cold-start without a network.`;
-        ui.button.hidden = false;
-      }
-    } else if (message.type === "OFFLINE_PROGRESS") {
-      const completed = message.completed ?? 0;
-      const total = message.total ?? 1;
-      ui.progress.value = completed;
-      ui.progress.max = total;
-      ui.status.textContent = `${completed.toLocaleString()} / ${total.toLocaleString()} files · ${formatBytes(message.completedBytes ?? 0)} / ${formatBytes(message.totalBytes ?? 0)}`;
-    } else if (message.type === "OFFLINE_COMPLETE") {
-      ui.panel.dataset.ready = "true";
-      ui.status.textContent = `Offline ready · ${message.revision}`;
-      ui.button.hidden = true;
-      ui.progress.hidden = true;
-    } else if (message.type === "OFFLINE_ERROR") {
-      ui.status.textContent = `Download stopped: ${message.message ?? "unknown error"}`;
-      ui.button.disabled = false;
-      ui.button.hidden = false;
-      ui.button.textContent = "Retry offline download";
+    handleWorkerMessage(event.data as OfflineWorkerMessage);
+  });
+
+  navigator.serviceWorker.addEventListener("controllerchange", requestStatus);
+  window.addEventListener("online", () => {
+    requestStatus();
+    requestCache().catch(error => console.error("Offline cache resume failed:", error));
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+      registration.update().catch(() => undefined);
+      requestStatus();
     }
   });
 
-  worker.postMessage({ type: "GET_STATUS" });
+  requestStatus();
 }
 
 if (isApp) {

@@ -1,4 +1,6 @@
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { createReadStream } from "node:fs";
 import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
@@ -10,7 +12,9 @@ if (!new Set(["normal", "unlock-all"]).has(variant)) {
 
 const root = process.cwd();
 const dist = path.join(root, "dist");
-const overlayVersion = 1;
+const overlayVersion = 2;
+const manifestVersion = 2;
+const hashConcurrency = 16;
 
 function gitRevision(...args) {
   return execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
@@ -57,6 +61,7 @@ async function collectFiles(directory) {
       files.push({
         path: `./${path.relative(dist, absolutePath).split(path.sep).join("/")}`,
         size: metadata.size,
+        absolutePath,
       });
     }
   }
@@ -64,10 +69,30 @@ async function collectFiles(directory) {
 await collectFiles(dist);
 files.sort((left, right) => left.path.localeCompare(right.path));
 
-const totalBytes = files.reduce((total, file) => total + file.size, 0);
+async function calculateSha256(absolutePath) {
+  const hash = createHash("sha256");
+  for await (const chunk of createReadStream(absolutePath)) {
+    hash.update(chunk);
+  }
+  return hash.digest("hex");
+}
+
+let nextFileIndex = 0;
+await Promise.all(
+  Array.from({ length: Math.min(hashConcurrency, files.length) }, async () => {
+    while (nextFileIndex < files.length) {
+      const file = files[nextFileIndex];
+      nextFileIndex += 1;
+      file.sha256 = await calculateSha256(file.absolutePath);
+    }
+  }),
+);
+
+const manifestFiles = files.map(file => ({ path: file.path, size: file.size, sha256: file.sha256 }));
+const totalBytes = manifestFiles.reduce((total, file) => total + file.size, 0);
 await writeFile(
   path.join(dist, "offline-manifest.json"),
-  `${JSON.stringify({ revision, variant, totalBytes, files })}\n`,
+  `${JSON.stringify({ manifestVersion, revision, variant, totalBytes, files: manifestFiles })}\n`,
 );
 
 const serviceWorkerTemplate = await readFile(path.join(root, "scripts/offline/service-worker.js"), "utf8");
@@ -77,5 +102,5 @@ await writeFile(
 );
 
 console.log(
-  `Offline ${variant} build: ${files.length.toLocaleString()} files, ${(totalBytes / 1024 ** 2).toFixed(1)} MB`,
+  `Offline ${variant} build: ${manifestFiles.length.toLocaleString()} files, ${(totalBytes / 1024 ** 2).toFixed(1)} MB`,
 );

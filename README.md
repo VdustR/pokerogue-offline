@@ -6,9 +6,9 @@
 
 An unofficial, fully offline PokéRogue PWA that automatically tracks the official `main` branch and stops publishing when an upstream change cannot be verified safely.
 
-- **Play the unlock-all PWA:** <https://vdustr.dev/pokerogue-offline/>
-- **Download normal or unlock-all ZIPs:** <https://github.com/VdustR/pokerogue-offline/releases>
-- **Inspect update runs:** <https://github.com/VdustR/pokerogue-offline/actions/workflows/update-offline-builds.yml>
+- **Play the unlock-all PWA:** [GitHub Pages](https://vdustr.dev/pokerogue-offline/)
+- **Download normal or unlock-all ZIPs:** [GitHub Releases](https://github.com/VdustR/pokerogue-offline/releases)
+- **Inspect update runs:** [GitHub Actions](https://github.com/VdustR/pokerogue-offline/actions/workflows/update-offline-builds.yml)
 
 ## Editions
 
@@ -21,15 +21,20 @@ The unlock-all preset is idempotent and runs when a local save is created or loa
 
 All saves stay in browser-local storage. These builds do not connect to the official game server.
 
+The offline build stores its language choice separately from other apps on the same origin. Browser locales for Taiwan, Hong Kong, and Macau are normalized to Traditional Chinese; China and Singapore are normalized to Simplified Chinese. A stale official-site `prLang` value therefore cannot silently select Thai in this build.
+
 ## Install and play offline
 
 1. Open the [hosted PWA](https://vdustr.dev/pokerogue-offline/) while online.
-2. Select **Download for offline play**.
-3. Keep the page open until it reports **Offline ready**.
-4. Install the PWA from the browser menu if desired.
-5. Disconnect the network and launch or reload the game normally.
+2. Install it from the browser menu or home-screen install action.
+3. Launch the installed PWA once while online. It prepares offline data automatically in the background.
+4. After the brief **Offline ready** status appears, disconnect the network and launch the installed PWA normally.
 
-The current complete cache is about 640 MB. The installer requests persistent browser storage, downloads every required file, and only marks the version ready after the cache is complete.
+Regular browser tabs do not show an offline prompt, register the dedicated service worker, or start the bulk download. The automatic installer only runs in standalone, fullscreen, or minimal-UI PWA display modes. Its status toast and bottom progress line do not intercept touches and disappear automatically.
+
+Browsers share storage between an installed PWA and same-origin tabs. After installation, an ordinary tab may reuse already prepared offline data, but it never starts or retries the bulk download itself.
+
+The current complete cache is about 640 MB. The PWA requests persistent browser storage and only marks a version ready after every file passes SHA-256 integrity verification. If the operating system suspends the browser, the next PWA launch resumes from the already verified files instead of starting over. Subsequent official updates reuse unchanged content by hash and keep the last complete revision available until the replacement is ready.
 
 Browser storage is still controlled by the browser and operating system. Clearing site data or storage eviction removes the offline installation and requires another download.
 
@@ -43,7 +48,7 @@ Each update:
 2. Applies the tracked offline patch and additive overlay.
 3. Runs TypeScript checks and the complete upstream Vitest suite.
 4. Builds both editions.
-5. Loads the complete cache in Chrome, switches Chrome offline, and verifies a cold reload for each edition.
+5. Verifies in Chrome that regular web mode does not install offline data, installed-PWA mode downloads automatically, an interrupted download resumes without re-fetching completed files, and an offline cold reload succeeds for each edition.
 6. Publishes both ZIPs with SHA-256 checksums as a GitHub Release.
 7. Deploys the verified unlock-all edition to GitHub Pages.
 
@@ -56,7 +61,7 @@ The workflow is fail-closed. It publishes nothing when any of these gates fail:
 - the service worker does not cache every declared file; or
 - Chrome cannot cold-start the built game without a network.
 
-An interrupted client-side update keeps the last complete cache. The service worker activates a new revision only after every file has downloaded successfully, then removes the previous revision.
+An interrupted client-side update keeps the last complete cache. Content-addressed storage downloads only missing SHA-256 objects, activates a new revision only after every declared file is present, and then removes superseded metadata and unreferenced content.
 
 ## Local verification
 
