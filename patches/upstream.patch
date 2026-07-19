@@ -1,0 +1,152 @@
+diff --git a/index.html b/index.html
+index 630a850..c888ce8 100644
+--- a/index.html
++++ b/index.html
+@@ -44,19 +44,6 @@ SPDX-License-Identifier: AGPL-3.0-only
+ 	<link rel="stylesheet" type="text/css" href="./index.css" />
+ 	<link rel="manifest" href="./manifest.webmanifest">
+   <script>
+-    if ("serviceWorker" in navigator) {
+-      window.addEventListener("load", function () {
+-        navigator.serviceWorker.register("./service-worker.js").then(
+-          function (registration) {
+-            console.log("ServiceWorker registration successful");
+-          },
+-          function (err) {
+-            console.log("ServiceWorker registration failed: ", err);
+-          },
+-        );
+-      });
+-    }
+-
+     window.addEventListener('beforeinstallprompt', e => {
+       // Prevent invasive install prompt (users are still able to install as an app)
+       e.preventDefault();
+diff --git a/package.json b/package.json
+index 32e2dcd..715380e 100644
+--- a/package.json
++++ b/package.json
+@@ -12,6 +12,8 @@
+     "build:beta": "vite build --mode beta",
+     "build:dev": "vite build --mode development",
+     "build:app": "vite build --mode app",
++    "build:offline": "vite build --mode app && node scripts/generate-offline-build.mjs normal",
++    "build:offline:unlock-all": "vite build --mode app-unlock-all && node scripts/generate-offline-build.mjs unlock-all",
+     "preview": "vite preview",
+     "test": "vitest run",
+     "test:profile": "vite-node scripts/profiling/profiling.ts",
+diff --git a/src/constants/app-constants.ts b/src/constants/app-constants.ts
+index c249e14..39b150f 100644
+--- a/src/constants/app-constants.ts
++++ b/src/constants/app-constants.ts
+@@ -12,10 +12,13 @@ export const isDev = import.meta.env.MODE === "development";
+  */
+ export const isBeta = import.meta.env.MODE === "beta";
+ 
+-/** `true` if running via "app" mode (`pnpm build:app` which runs `vite build --mode app`) */
+-export const isApp = import.meta.env.MODE === "app";
++/** `true` if running via either of the offline app build modes. */
++export const isApp = import.meta.env.MODE === "app" || import.meta.env.MODE === "app-unlock-all";
+ 
+ /** `true` if running automated tests via Vitest. */
+ export const IS_TEST = import.meta.env.MODE === "test";
+ 
+ export const bypassLogin = import.meta.env.VITE_BYPASS_LOGIN === "1";
++
++/** `true` only in the separate offline build that permanently applies the unlock-all preset. */
++export const unlockAllBuild = bypassLogin && import.meta.env.VITE_UNLOCK_ALL === "1";
+diff --git a/src/init/init-manifest.ts b/src/init/init-manifest.ts
+index 54c198d..57b2dd3 100644
+--- a/src/init/init-manifest.ts
++++ b/src/init/init-manifest.ts
+@@ -1,7 +1,7 @@
+ import { initializeManifest } from "#app/global-manifest";
+ 
+ try {
+-  const manifest = await fetch("/manifest.json").then(r => r.json());
++  const manifest = await fetch("./manifest.json").then(r => r.json());
+   initializeManifest(manifest["manifest"]);
+ } catch (err) {
+   // Manifest not found (likely local build or path error on live)
+diff --git a/src/main.ts b/src/main.ts
+index a8bc2d1..9a40377 100644
+--- a/src/main.ts
++++ b/src/main.ts
+@@ -1,6 +1,7 @@
+ import "#app/polyfills"; // All polyfills MUST be loaded first for side effects
+ import "#init/init-manifest"; // initializes the manifest, must be done *before* i18n is initialized due to being used for caching
+ import "#app/i18n"; // Initializes i18n on import
++import "#app/offline-install";
+ 
+ import { InvertPostFX } from "#app/pipelines/invert";
+ import { preventDoubleTapZoom } from "#app/touch-controls";
+diff --git a/src/system/game-data.ts b/src/system/game-data.ts
+index 1daa9b6..0a22e04 100644
+--- a/src/system/game-data.ts
++++ b/src/system/game-data.ts
+@@ -9,7 +9,7 @@ import { activeOverrides } from "#app/overrides";
+ import { isIos } from "#app/touch-controls";
+ import { Tutorial } from "#app/tutorial";
+ import { speciesEggMoves } from "#balance/moves/egg-moves";
+-import { bypassLogin, isBeta, isDev } from "#constants/app-constants";
++import { bypassLogin, isBeta, isDev, unlockAllBuild } from "#constants/app-constants";
+ import { MAX_STARTER_CANDY_COUNT } from "#constants/game-constants";
+ import { EntryHazardTag } from "#data/arena-tag";
+ import { getSerializedDailyRunConfig, parseDailySeed } from "#data/daily-seed/daily-seed-utils";
+@@ -50,6 +50,7 @@ import { SettingGamepad, setSettingGamepad, settingGamepadDefaults } from "#syst
+ import type { SettingKeyboard } from "#system/settings-keyboard";
+ import { setSettingKeyboard } from "#system/settings-keyboard";
+ import { TrainerData } from "#system/trainer-data";
++import { applyUnlockAllPreset } from "#system/unlock-all";
+ import {
+   applySessionVersionMigration,
+   applySettingsVersionMigration,
+@@ -190,6 +191,9 @@ export class GameData {
+     this.unlockPity = [0, 0, 0, 0];
+     this.initDexData();
+     this.initStarterData();
++    if (unlockAllBuild) {
++      applyUnlockAllPreset(this);
++    }
+   }
+ 
+   public getSystemSaveData(): SystemSaveData {
+@@ -468,6 +472,9 @@ export class GameData {
+     this.dexData = Object.assign(this.dexData, systemData.dexData);
+     this.consolidateDexData(this.dexData);
+     this.defaultDexData = null;
++    if (unlockAllBuild) {
++      applyUnlockAllPreset(this);
++    }
+   }
+ 
+   public async initSystem(systemDataStr: string, cachedSystemDataStr?: string): Promise<boolean> {
+diff --git a/src/vite.env.d.ts b/src/vite.env.d.ts
+index fdd26e4..d0a93aa 100644
+--- a/src/vite.env.d.ts
++++ b/src/vite.env.d.ts
+@@ -8,9 +8,10 @@ type HTTP_URL = `http${"" | "s"}://${string}`;
+ interface ImportMetaEnv {
+   // TODO: There doesn't appear to be a way to override Vite's definition of MODE;
+   // it still shows up as "string"...
+-  readonly MODE: "development" | "beta" | "production" | "test" | "app";
++  readonly MODE: "development" | "beta" | "production" | "test" | "app" | "app-unlock-all";
+   readonly VITE_PORT?: `${number}`;
+   readonly VITE_BYPASS_LOGIN?: "0" | "1";
++  readonly VITE_UNLOCK_ALL?: "0" | "1";
+   readonly VITE_BYPASS_TUTORIAL?: "0" | "1";
+   readonly VITE_API_BASE_URL?: HTTP_URL;
+   readonly VITE_SERVER_URL?: HTTP_URL;
+diff --git a/vite.config.ts b/vite.config.ts
+index edcf963..a973d00 100644
+--- a/vite.config.ts
++++ b/vite.config.ts
+@@ -14,7 +14,7 @@ export const sharedConfig: UserConfigFnPromise = async ({ mode }) => {
+     clearScreen: false,
+     appType: "mpa",
+     build: {
+-      sourcemap: mode !== "production",
++      sourcemap: !["production", "app", "app-unlock-all"].includes(mode),
+       chunkSizeWarningLimit: 10000,
+       minify: "oxc",
+       rolldownOptions: {
