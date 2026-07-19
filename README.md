@@ -1,5 +1,11 @@
 # PokéRogue Offline Builder
 
+[![Update offline builds](https://github.com/VdustR/pokerogue-offline/actions/workflows/update-offline-builds.yml/badge.svg)](https://github.com/VdustR/pokerogue-offline/actions/workflows/update-offline-builds.yml)
+
+Live unlock-all PWA: <https://vdustr.dev/pokerogue-offline/>
+
+Automated packages: <https://github.com/VdustR/pokerogue-offline/releases>
+
 This repository builds two self-contained, local-save-only PokéRogue PWA editions from the current official `main` branch:
 
 - `normal`: official progression with login and server access disabled.
