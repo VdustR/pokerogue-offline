@@ -43,6 +43,7 @@ try {
     path.join(appDirectory, "package.json"),
     `${JSON.stringify(
       {
+        author: "VdustR and PokéRogue contributors",
         name: `pokerogue-offline-${bundleSuffix}`,
         productName,
         version: appVersion,
@@ -83,7 +84,7 @@ try {
   const parentDirectory = path.dirname(packagedPath);
   const packagedName = path.basename(packagedPath);
   if (platform === "linux") {
-    execFileSync("tar", ["-cJf", outputFile, "-C", parentDirectory, packagedName], { stdio: "inherit" });
+    execFileSync("tar", ["-czf", outputFile, "-C", parentDirectory, packagedName], { stdio: "inherit" });
   } else {
     execFileSync("zip", ["-qry", "-y", outputFile, packagedName], {
       cwd: parentDirectory,

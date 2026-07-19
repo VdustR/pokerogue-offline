@@ -50,7 +50,7 @@ The override is remembered for that app. Do not disable Gatekeeper globally. Ver
 
 On Windows, extract the ZIP and run the executable inside. Windows SmartScreen may show an unsigned-publisher warning; use **More info → Run anyway** only after verifying the checksum.
 
-On Linux, extract the `.tar.xz` archive and run the included executable. The archive preserves executable permissions.
+On Linux, extract the `.tar.gz` archive and run the included executable. The archive preserves executable permissions.
 
 ## Android
 

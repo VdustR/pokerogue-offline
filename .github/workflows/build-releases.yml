@@ -151,10 +151,10 @@ jobs:
         run: |
           upstream_short="${{ steps.release.outputs.upstream_short }}"
           for variant in normal unlock-all; do
-            archive="../release/pokerogue-$variant-electron-linux-x64-$upstream_short.tar.xz"
+            archive="../release/pokerogue-$variant-electron-linux-x64-$upstream_short.tar.gz"
             node scripts/package-electron.mjs "../builds/$variant" "$archive" linux x64
             mkdir -p "../packaged-test/$variant"
-            tar -xJf "$archive" -C "../packaged-test/$variant"
+            tar -xzf "$archive" -C "../packaged-test/$variant"
             if [[ "$variant" == "normal" ]]; then
               executable="../packaged-test/$variant/Pokerogue Offline-linux-x64/Pokerogue Offline"
             else
