@@ -3,9 +3,14 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "e2e": "node e2e/offline-e2e.mjs"
+    "e2e:android": "node e2e/android-e2e.mjs",
+    "e2e:electron": "node e2e/electron-e2e.mjs",
+    "package:electron": "node scripts/package-electron.mjs",
+    "stage:android": "node scripts/stage-android-assets.mjs"
   },
   "devDependencies": {
+    "@electron/packager": "20.0.3",
+    "electron": "43.1.1",
     "playwright-core": "1.61.1"
   },
   "packageManager": "pnpm@10.33.2"

@@ -1,0 +1,297 @@
+name: Build offline app releases
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+  schedule:
+    - cron: "23 */6 * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: offline-app-release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: Check out builder
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          path: builder
+
+      - name: Check out official PokéRogue
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          repository: pagefaultgames/pokerogue
+          ref: main
+          fetch-depth: 1
+          submodules: recursive
+          path: upstream
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5
+        with:
+          version: 10.33.2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: upstream/.nvmrc
+          cache: pnpm
+          cache-dependency-path: |
+            builder/pnpm-lock.yaml
+            upstream/pnpm-lock.yaml
+
+      - name: Set up Java
+        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Resolve release identity
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          upstream_sha="$(git -C upstream rev-parse HEAD)"
+          builder_sha="$(git -C builder rev-parse HEAD)"
+          tag="app-${upstream_sha:0:12}-builder-${builder_sha:0:8}"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "upstream_sha=$upstream_sha" >> "$GITHUB_OUTPUT"
+          echo "upstream_short=${upstream_sha:0:12}" >> "$GITHUB_OUTPUT"
+          echo "builder_sha=$builder_sha" >> "$GITHUB_OUTPUT"
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+          else
+            existing_draft="$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft 2>/dev/null || true)"
+            if [[ "$existing_draft" == "false" ]]; then
+              echo "should_build=false" >> "$GITHUB_OUTPUT"
+              echo "should_release=false" >> "$GITHUB_OUTPUT"
+            else
+              if [[ "$existing_draft" == "true" ]]; then
+                gh release delete "$tag" --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes
+              fi
+              echo "should_build=true" >> "$GITHUB_OUTPUT"
+              echo "should_release=true" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
+      - name: Install dependencies
+        if: steps.release.outputs.should_build == 'true'
+        run: |
+          pnpm --dir builder install --frozen-lockfile
+          pnpm --dir upstream install --frozen-lockfile
+
+      - name: Apply fail-closed offline overlay
+        if: steps.release.outputs.should_build == 'true'
+        run: bash builder/scripts/apply-overlay.sh upstream
+
+      - name: Verify types and complete upstream tests
+        if: steps.release.outputs.should_build == 'true'
+        run: |
+          pnpm --dir upstream typecheck
+          pnpm --dir upstream test:silent
+
+      - name: Build and E2E test both editions
+        if: steps.release.outputs.should_build == 'true'
+        run: |
+          mkdir -p builds release
+          pnpm --dir upstream build:offline
+          xvfb-run -a pnpm --dir builder e2e:electron ../upstream/dist
+          mv upstream/dist builds/normal
+
+          pnpm --dir upstream build:offline:unlock-all
+          xvfb-run -a pnpm --dir builder e2e:electron ../upstream/dist
+          mv upstream/dist builds/unlock-all
+
+      - name: Create draft release
+        if: steps.release.outputs.should_release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat > "$RUNNER_TEMP/release-notes.md" <<'EOF'
+          Fully offline Electron desktop and Android builds generated from the official PokéRogue `main` branch.
+
+          Editions:
+          - `normal`: official local progression with online login disabled.
+          - `unlock-all`: applies all supported local progression unlocks whenever a save is created or loaded.
+
+          Platforms:
+          - macOS arm64 and Intel x64 Electron apps
+          - Windows x64 Electron app
+          - Linux x64 Electron app
+          - Android 8.0+ APKs
+
+          The Android apps request no network permission. Electron blocks HTTP, HTTPS, and WebSocket requests at runtime. See the repository README for installation details and unsigned-app warnings.
+          EOF
+          gh release create "${{ steps.release.outputs.tag }}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --draft \
+            --title "PokéRogue offline apps ${{ steps.release.outputs.upstream_short }}" \
+            --notes-file "$RUNNER_TEMP/release-notes.md"
+
+      - name: Package and test Linux Electron apps
+        if: steps.release.outputs.should_build == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        working-directory: builder
+        run: |
+          upstream_short="${{ steps.release.outputs.upstream_short }}"
+          for variant in normal unlock-all; do
+            archive="../release/pokerogue-$variant-electron-linux-x64-$upstream_short.tar.xz"
+            node scripts/package-electron.mjs "../builds/$variant" "$archive" linux x64
+            mkdir -p "../packaged-test/$variant"
+            tar -xJf "$archive" -C "../packaged-test/$variant"
+            if [[ "$variant" == "normal" ]]; then
+              executable="../packaged-test/$variant/Pokerogue Offline-linux-x64/Pokerogue Offline"
+            else
+              executable="../packaged-test/$variant/Pokerogue Unlock All-linux-x64/Pokerogue Unlock All"
+            fi
+            xvfb-run -a pnpm e2e:electron "../builds/$variant" "$executable"
+            rm -rf "../packaged-test/$variant"
+            if [[ "${{ steps.release.outputs.should_release }}" == "true" ]]; then
+              archive_name="$(basename "$archive")"
+              (cd ../release && sha256sum "$archive_name" >> SHA256SUMS.txt)
+              gh release upload "${{ steps.release.outputs.tag }}" "$archive" \
+                --repo "$GITHUB_REPOSITORY"
+            fi
+            rm "$archive"
+          done
+
+      - name: Package macOS and Windows Electron apps
+        if: steps.release.outputs.should_build == 'true' && steps.release.outputs.should_release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        working-directory: builder
+        run: |
+          upstream_short="${{ steps.release.outputs.upstream_short }}"
+          upload_and_remove() {
+            archive="$1"
+            archive_name="$(basename "$archive")"
+            (cd ../release && sha256sum "$archive_name" >> SHA256SUMS.txt)
+            gh release upload "${{ steps.release.outputs.tag }}" "$archive" \
+              --repo "$GITHUB_REPOSITORY"
+            rm "$archive"
+          }
+          for variant in normal unlock-all; do
+            archive="../release/pokerogue-$variant-electron-macos-arm64-$upstream_short.zip"
+            node scripts/package-electron.mjs "../builds/$variant" "$archive" darwin arm64
+            upload_and_remove "$archive"
+
+            archive="../release/pokerogue-$variant-electron-macos-x64-$upstream_short.zip"
+            node scripts/package-electron.mjs "../builds/$variant" "$archive" darwin x64
+            upload_and_remove "$archive"
+
+            archive="../release/pokerogue-$variant-electron-windows-x64-$upstream_short.zip"
+            node scripts/package-electron.mjs "../builds/$variant" "$archive" win32 x64
+            upload_and_remove "$archive"
+          done
+
+      - name: Install Android SDK packages
+        if: steps.release.outputs.should_build == 'true'
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Stage Android assets
+        if: steps.release.outputs.should_build == 'true'
+        working-directory: builder
+        run: pnpm stage:android ../builds/normal ../builds/unlock-all
+
+      - name: Build and lint Android apps
+        if: steps.release.outputs.should_build == 'true'
+        working-directory: builder/android
+        run: |
+          version_name="$(jq -r .upstreamVersion ../../builds/normal/offline-build.json)-${{ steps.release.outputs.upstream_short }}"
+          version_code="$((100000 + GITHUB_RUN_NUMBER))"
+          if [[ "${{ steps.release.outputs.should_release }}" == "true" ]]; then
+            ./gradlew --no-daemon \
+              -PpokerogueVersionName="$version_name" \
+              -PpokerogueVersionCode="$version_code" \
+              assembleNormalRelease assembleUnlockAllRelease lintNormalRelease lintUnlockAllRelease
+          else
+            ./gradlew --no-daemon \
+              -PpokerogueVersionName="$version_name" \
+              -PpokerogueVersionCode="$version_code" \
+              assembleNormalDebug assembleUnlockAllDebug lintNormalDebug lintUnlockAllDebug
+          fi
+
+      - name: Verify and sign Android release APKs
+        if: steps.release.outputs.should_release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          for key in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
+            if [[ -z "${!key:-}" ]]; then
+              echo "Required Android signing secret is missing: $key" >&2
+              exit 1
+            fi
+          done
+
+          keystore="$RUNNER_TEMP/pokerogue-release.jks"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$keystore"
+          build_tools="$ANDROID_SDK_ROOT/build-tools/36.0.0"
+          upstream_short="${{ steps.release.outputs.upstream_short }}"
+
+          "$build_tools/apksigner" sign \
+            --ks "$keystore" \
+            --ks-key-alias "$ANDROID_KEY_ALIAS" \
+            --ks-pass env:ANDROID_KEYSTORE_PASSWORD \
+            --key-pass env:ANDROID_KEY_PASSWORD \
+            --out "release/pokerogue-normal-android-$upstream_short.apk" \
+            builder/android/app/build/outputs/apk/normal/release/app-normal-release-unsigned.apk
+          "$build_tools/apksigner" sign \
+            --ks "$keystore" \
+            --ks-key-alias "$ANDROID_KEY_ALIAS" \
+            --ks-pass env:ANDROID_KEYSTORE_PASSWORD \
+            --key-pass env:ANDROID_KEY_PASSWORD \
+            --out "release/pokerogue-unlock-all-android-$upstream_short.apk" \
+            builder/android/app/build/outputs/apk/unlockAll/release/app-unlockAll-release-unsigned.apk
+
+          for apk in release/*.apk; do
+            "$build_tools/apksigner" verify --verbose --print-certs "$apk"
+            "$build_tools/aapt2" dump permissions "$apk" > "$apk.permissions.txt"
+            if grep -q 'android.permission.INTERNET' "$apk.permissions.txt"; then
+              echo "Offline APK unexpectedly requests INTERNET permission: $apk" >&2
+              exit 1
+            fi
+            rm "$apk.permissions.txt"
+            apk_name="$(basename "$apk")"
+            (cd release && sha256sum "$apk_name" >> SHA256SUMS.txt)
+            gh release upload "${{ steps.release.outputs.tag }}" "$apk" \
+              --repo "$GITHUB_REPOSITORY"
+            rm "$apk"
+          done
+
+      - name: Publish verified release
+        if: steps.release.outputs.should_release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${{ steps.release.outputs.tag }}" release/SHA256SUMS.txt \
+            --repo "$GITHUB_REPOSITORY"
+          gh release edit "${{ steps.release.outputs.tag }}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --draft=false
+
+      - name: Remove incomplete draft release
+        if: ${{ always() && steps.release.outputs.should_release == 'true' && !success() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete "${{ steps.release.outputs.tag }}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --cleanup-tag \
+            --yes || true

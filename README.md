@@ -1,71 +1,96 @@
-# PokéRogue Offline
+# PokéRogue Offline Apps
 
-[![Update offline builds](https://github.com/VdustR/pokerogue-offline/actions/workflows/update-offline-builds.yml/badge.svg)](https://github.com/VdustR/pokerogue-offline/actions/workflows/update-offline-builds.yml)
+[![Build offline app releases](https://github.com/VdustR/pokerogue-offline/actions/workflows/build-releases.yml/badge.svg)](https://github.com/VdustR/pokerogue-offline/actions/workflows/build-releases.yml)
 [![Latest release](https://img.shields.io/github/v/release/VdustR/pokerogue-offline?display_name=tag&sort=date)](https://github.com/VdustR/pokerogue-offline/releases/latest)
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
 
-An unofficial, fully offline PokéRogue PWA that automatically tracks the official `main` branch and stops publishing when an upstream change cannot be verified safely.
+Unofficial, fully offline PokéRogue apps for Electron desktop and Android. Automated builds track the official `main` branch and fail closed when an upstream change can no longer be applied or verified safely.
 
-- **Play the unlock-all PWA:** [GitHub Pages](https://vdustr.dev/pokerogue-offline/)
-- **Download normal or unlock-all ZIPs:** [GitHub Releases](https://github.com/VdustR/pokerogue-offline/releases)
-- **Inspect update runs:** [GitHub Actions](https://github.com/VdustR/pokerogue-offline/actions/workflows/update-offline-builds.yml)
+- **Download apps:** [GitHub Releases](https://github.com/VdustR/pokerogue-offline/releases/latest)
+- **Inspect update runs:** [GitHub Actions](https://github.com/VdustR/pokerogue-offline/actions/workflows/build-releases.yml)
+
+There is no hosted web or PWA edition. Every app includes the complete game and can start without downloading game data.
 
 ## Editions
 
-| Edition | Progression | Distribution |
+| Edition | Progression | App identity |
 | --- | --- | --- |
-| `normal` | Official progression with login and server access disabled | GitHub Releases |
-| `unlock-all` | Automatically applies every supported local progression unlock | GitHub Pages and Releases |
+| `normal` | Official local progression with login and server access disabled | PokéRogue Offline |
+| `unlock-all` | Automatically applies every supported local progression unlock | PokéRogue Unlock All |
+
+The two editions use separate application identifiers, so they can be installed side by side. Their saves are intentionally separate.
 
 The unlock-all preset is idempotent and runs when a local save is created or loaded. It preserves player identity and run history while unlocking supported species variants, natures, 31 IVs, abilities, egg moves, passives, cost reductions, modes, achievements, vouchers, and ribbons.
 
-All saves stay in browser-local storage. These builds do not connect to the official game server.
+The offline build stores its language choice separately from other PokéRogue installations. Browser locales for Taiwan, Hong Kong, and Macau are normalized to Traditional Chinese; China and Singapore are normalized to Simplified Chinese. A stale official-site `prLang` value therefore cannot silently select Thai.
 
-The offline build stores its language choice separately from other apps on the same origin. Browser locales for Taiwan, Hong Kong, and Macau are normalized to Traditional Chinese; China and Singapore are normalized to Simplified Chinese. A stale official-site `prLang` value therefore cannot silently select Thai in this build.
+## Electron desktop
 
-## Install and play offline
+Electron releases are provided for:
 
-1. Open the [hosted PWA](https://vdustr.dev/pokerogue-offline/) while online.
-2. Install it from the browser menu or home-screen install action.
-3. Launch the installed PWA once while online. It prepares offline data automatically in the background.
-4. After the brief **Offline ready** status appears, disconnect the network and launch the installed PWA normally.
+- macOS Apple silicon (`arm64`)
+- macOS Intel (`x64`)
+- Windows (`x64`)
+- Linux (`x64`)
 
-Regular browser tabs do not show an offline prompt, register the dedicated service worker, or start the bulk download. The automatic installer only runs in standalone, fullscreen, or minimal-UI PWA display modes. Its status toast and bottom progress line do not intercept touches and disappear automatically.
+Desktop builds keep the small Electron shell in ASAR and place the complete game in the platform's standard read-only resources directory for reliable media streaming. The renderer uses an isolated custom protocol with Node.js integration disabled, Chromium sandboxing enabled, permission requests denied, and HTTP, HTTPS, and WebSocket traffic blocked. Press `F11` to toggle fullscreen.
 
-Browsers share storage between an installed PWA and same-origin tabs. After installation, an ordinary tab may reuse already prepared offline data, but it never starts or retries the bulk download itself.
+### macOS installation and Gatekeeper
 
-The current complete cache is about 640 MB. The PWA requests persistent browser storage and only marks a version ready after every file passes SHA-256 integrity verification. If the operating system suspends the browser, the next PWA launch resumes from the already verified files instead of starting over. Subsequent official updates reuse unchanged content by hash and keep the last complete revision available until the replacement is ready.
+These community builds are not signed with an Apple Developer ID and are not notarized. macOS may report that it cannot verify the developer. Keep Gatekeeper enabled and use Apple's per-app override:
 
-Browser storage is still controlled by the browser and operating system. Clearing site data or storage eviction removes the offline installation and requires another download.
+1. Download the ZIP matching the Mac processor and extract it.
+2. Move the `.app` into `/Applications`.
+3. Control-click the app in Finder, choose **Open**, then choose **Open** again.
+4. If macOS still blocks it, open **System Settings → Privacy & Security**. In the **Security** section, choose **Open Anyway** for the blocked PokéRogue app, authenticate, then confirm **Open**.
+
+The override is remembered for that app. Do not disable Gatekeeper globally. Verify the download against `SHA256SUMS.txt` before opening it.
+
+### Windows and Linux
+
+On Windows, extract the ZIP and run the executable inside. Windows SmartScreen may show an unsigned-publisher warning; use **More info → Run anyway** only after verifying the checksum.
+
+On Linux, extract the `.tar.xz` archive and run the included executable. The archive preserves executable permissions.
+
+## Android
+
+Android 8.0 or newer is supported. Each APK contains the complete game, requests no `INTERNET` permission, runs in a landscape WebView, serves media with byte-range support, and uses Android's system document picker for save import and export. It does not request broad storage access or trigger Android's first-time immersive-mode prompt.
+
+1. Download the APK for the preferred edition from the latest Release.
+2. Verify it against `SHA256SUMS.txt`.
+3. Open the APK and allow **Install unknown apps** for the browser or file manager when Android asks.
+4. Install an update over the same edition to retain its local saves. Do not uninstall first.
+
+Normal and unlock-all have different package names and can be installed together. Future updates are signed with the same project key so Android can update them in place.
+
+Because each APK contains the full game, keep at least 1.5 GB of free storage for download, installation, and WebView data. Android may display an additional warning for apps distributed outside an app store.
 
 ## Automated upstream updates
 
-The [update workflow](.github/workflows/update-offline-builds.yml) runs at minute 23 every six hours, on every push and pull request to `main`, and on manual dispatch.
+The [release workflow](.github/workflows/build-releases.yml) runs at minute 23 every six hours, on every push and pull request to `main`, and on manual dispatch.
 
 Each update:
 
-1. Checks out [`pagefaultgames/pokerogue@main`](https://github.com/pagefaultgames/pokerogue) and its assets and locales submodules.
+1. Checks out [`pagefaultgames/pokerogue@main`](https://github.com/pagefaultgames/pokerogue) with its assets and locales submodules.
 2. Applies the tracked offline patch and additive overlay.
 3. Runs TypeScript checks and the complete upstream Vitest suite.
-4. Builds both editions.
-5. Verifies in Chrome that regular web mode does not install offline data, installed-PWA mode downloads automatically, an interrupted download resumes without re-fetching completed files, and an offline cold reload succeeds for each edition.
-6. Publishes both ZIPs with SHA-256 checksums as a GitHub Release.
-7. Deploys the verified unlock-all edition to GitHub Pages.
+4. Builds normal and unlock-all editions.
+5. Launches each edition before and after Linux packaging, then verifies canvas startup, save persistence, renderer isolation, local-resource integrity, and blocked network access.
+6. Builds and lints both Android flavors, signs the APKs, verifies their signatures, and rejects any APK that requests `INTERNET` permission.
+7. Packages platform-specific Electron archives and publishes all files with one SHA-256 checksum manifest as a GitHub Release.
 
-The workflow is fail-closed. It publishes nothing when any of these gates fail:
+Artifacts are uploaded to a draft Release as each platform passes, then the Release becomes public only after every verification gate succeeds. An incomplete draft is removed automatically. A release tag contains both the upstream and builder revisions, so a builder change also produces a newly verified release even when upstream has not moved.
 
-- the patch no longer applies cleanly;
-- an overlay path collides with a new upstream file;
-- types or upstream tests fail;
-- either production build fails;
-- the service worker does not cache every declared file; or
-- Chrome cannot cold-start the built game without a network.
+Android releases require these repository Actions secrets:
 
-An interrupted client-side update keeps the last complete cache. Content-addressed storage downloads only missing SHA-256 objects, activates a new revision only after every declared file is present, and then removes superseded metadata and unreferenced content.
+- `ANDROID_KEYSTORE_BASE64`
+- `ANDROID_KEYSTORE_PASSWORD`
+- `ANDROID_KEY_ALIAS`
+- `ANDROID_KEY_PASSWORD`
 
 ## Local verification
 
-Requirements: Git, the Node.js version declared by upstream, pnpm 10.33.2, Chrome, and `zip`.
+Requirements: Git, the Node.js version declared by upstream, pnpm 10.33.2, Electron's Linux runtime dependencies or macOS/Windows, JDK 17, Android SDK 36, and at least 8 GB of free working space.
 
 ```sh
 git clone --depth 1 --recurse-submodules https://github.com/pagefaultgames/pokerogue.git upstream
@@ -75,11 +100,19 @@ pnpm --dir upstream install --frozen-lockfile
 pnpm --dir upstream typecheck
 pnpm --dir upstream test:silent
 pnpm --dir upstream build:offline
-node e2e/offline-e2e.mjs upstream/dist
+pnpm e2e:electron upstream/dist
 ```
 
-Use `pnpm --dir upstream build:offline:unlock-all` to verify the unlock-all edition instead. Keep at least 1.5 GB free during an update because the atomic cache transition temporarily retains both the current and incoming versions.
+Build both Android flavors after staging the two web builds:
+
+```sh
+pnpm stage:android builds/normal builds/unlock-all
+cd android
+./gradlew assembleNormalDebug assembleUnlockAllDebug lintNormalDebug lintUnlockAllDebug
+```
+
+Use `pnpm --dir upstream build:offline:unlock-all` for the unlock-all web payload. Release APK signing is intentionally performed by GitHub Actions rather than local Gradle configuration.
 
 ## Licensing and project status
 
-This project is not affiliated with Pagefault Games, Nintendo, Game Freak, or The Pokémon Company. PokéRogue is licensed under AGPL-3.0-only. Distributed builds must keep the corresponding source and builder available and comply with upstream asset licensing and attribution requirements.
+This project is not affiliated with Pagefault Games, Nintendo, Game Freak, or The Pokémon Company. PokéRogue is licensed under AGPL-3.0-only. Distributed builds keep the corresponding source and builder available and must comply with upstream asset licensing and attribution requirements.

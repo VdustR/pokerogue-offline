@@ -49,7 +49,7 @@ index 1b332fe..a7bdc89 100644
      async () => {
        i18next.services.formatter?.add("money", i18nMoneyFormatter);
 -      await initFonts(localStorage.getItem("prLang") ?? undefined);
-+      await initFonts(localStorage.getItem(OFFLINE_LANGUAGE_STORAGE_KEY) ?? undefined);
++      await initFonts(globalThis.localStorage?.getItem(OFFLINE_LANGUAGE_STORAGE_KEY) ?? undefined);
      },
    );
  
@@ -91,15 +91,15 @@ index 0b7527a..21d7543 100644
          case "en":
            this.settings[languageIndex].options[0] = {
 diff --git a/package.json b/package.json
-index 32e2dcd..715380e 100644
+index 32e2dcd..a7352f3 100644
 --- a/package.json
 +++ b/package.json
 @@ -12,6 +12,8 @@
      "build:beta": "vite build --mode beta",
      "build:dev": "vite build --mode development",
      "build:app": "vite build --mode app",
-+    "build:offline": "vite build --mode app && node scripts/generate-offline-build.mjs normal",
-+    "build:offline:unlock-all": "vite build --mode app-unlock-all && node scripts/generate-offline-build.mjs unlock-all",
++    "build:offline": "vite build --mode app && node scripts/finalize-offline-build.mjs normal",
++    "build:offline:unlock-all": "vite build --mode app-unlock-all && node scripts/finalize-offline-build.mjs unlock-all",
      "preview": "vite preview",
      "test": "vitest run",
      "test:profile": "vite-node scripts/profiling/profiling.ts",
@@ -136,18 +136,6 @@ index 54c198d..57b2dd3 100644
    initializeManifest(manifest["manifest"]);
  } catch (err) {
    // Manifest not found (likely local build or path error on live)
-diff --git a/src/main.ts b/src/main.ts
-index a8bc2d1..9a40377 100644
---- a/src/main.ts
-+++ b/src/main.ts
-@@ -1,6 +1,7 @@
- import "#app/polyfills"; // All polyfills MUST be loaded first for side effects
- import "#init/init-manifest"; // initializes the manifest, must be done *before* i18n is initialized due to being used for caching
- import "#app/i18n"; // Initializes i18n on import
-+import "#app/offline-install";
- 
- import { InvertPostFX } from "#app/pipelines/invert";
- import { preventDoubleTapZoom } from "#app/touch-controls";
 diff --git a/src/system/game-data.ts b/src/system/game-data.ts
 index 1daa9b6..0a22e04 100644
 --- a/src/system/game-data.ts
