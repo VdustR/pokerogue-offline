@@ -15,6 +15,12 @@ function wait(milliseconds) {
   return new Promise(resolve => setTimeout(resolve, milliseconds));
 }
 
+function allInsetsHidden(windowState, type) {
+  const visibilityPattern = new RegExp(`type=${type}[^\\n]*visible=(true|false)`, "g");
+  const visibilities = [...windowState.matchAll(visibilityPattern)].map(match => match[1]);
+  return visibilities.length > 0 && visibilities.every(visibility => visibility === "false");
+}
+
 async function connectCdp(webSocketUrl) {
   const socket = new WebSocket(webSocketUrl);
   await new Promise((resolve, reject) => {
@@ -171,6 +177,11 @@ try {
   await waitForCanvas(cdp);
   const persisted = await evaluate(cdp, `localStorage.getItem("pokerogue-android-e2e")`);
   const permissions = adb("shell", "dumpsys", "package", packageName);
+  const activityState = adb("shell", "dumpsys", "activity", "activities");
+  const windowState = adb("shell", "dumpsys", "window", "displays");
+  const usesUserLandscape = activityState.includes("requestedOrientation=SCREEN_ORIENTATION_USER_LANDSCAPE");
+  const navigationBarHidden = allInsetsHidden(windowState, "navigationBars");
+  const statusBarHidden = allInsetsHidden(windowState, "statusBars");
 
   if (
     initialState.canvasCount === 0
@@ -179,15 +190,25 @@ try {
     || (expectedLanguage && initialState.detectedLanguage !== expectedLanguage)
     || persisted !== "persisted"
     || permissions.includes("android.permission.INTERNET")
+    || !usesUserLandscape
+    || !navigationBarHidden
+    || !statusBarHidden
     || pageErrors.length > 0
   ) {
     throw new Error(
-      `Android E2E failed: ${JSON.stringify({ initialState, persisted, pageErrors })}`,
+      `Android E2E failed: ${JSON.stringify({
+        initialState,
+        navigationBarHidden,
+        pageErrors,
+        persisted,
+        statusBarHidden,
+        usesUserLandscape,
+      })}`,
     );
   }
 
   console.log(
-    `Android E2E passed for ${packageName}: language=${initialState.detectedLanguage}, local save persisted, and network was blocked.`,
+    `Android E2E passed for ${packageName}: language=${initialState.detectedLanguage}, local save persisted, network was blocked, system bars were hidden, and user landscape was honored.`,
   );
 } finally {
   cdp?.close();
