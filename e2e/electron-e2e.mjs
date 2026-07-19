@@ -15,8 +15,11 @@ const canvasTimeout = Number.parseInt(process.env.POKEROGUE_E2E_CANVAS_TIMEOUT ?
 const packagedArgs = process.env.POKEROGUE_E2E_USER_DATA_DIR
   ? [`--user-data-dir=${path.resolve(process.env.POKEROGUE_E2E_USER_DATA_DIR)}`]
   : [];
+const softwareGlArgs = process.env.POKEROGUE_E2E_SOFTWARE_GL === "1"
+  ? ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"]
+  : [];
 const app = await electron.launch({
-  args: executablePath ? packagedArgs : [mainPath],
+  args: executablePath ? [...softwareGlArgs, ...packagedArgs] : [...softwareGlArgs, mainPath],
   executablePath,
   env: {
     ...process.env,

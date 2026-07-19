@@ -104,6 +104,8 @@ jobs:
 
       - name: Build and E2E test both editions
         if: steps.release.outputs.should_build == 'true'
+        env:
+          POKEROGUE_E2E_SOFTWARE_GL: "1"
         run: |
           mkdir -p builds release
           pnpm --dir upstream build:offline
@@ -144,6 +146,7 @@ jobs:
         if: steps.release.outputs.should_build == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          POKEROGUE_E2E_SOFTWARE_GL: "1"
         working-directory: builder
         run: |
           upstream_short="${{ steps.release.outputs.upstream_short }}"
