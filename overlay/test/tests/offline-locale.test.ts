@@ -6,6 +6,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 afterEach(() => {
   localStorage.removeItem(OFFLINE_LANGUAGE_STORAGE_KEY);
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 async function detectSystemLanguages(languages: string[]): Promise<string> {
@@ -70,6 +72,16 @@ describe("offline locale isolation", () => {
     "",
   ])("does not guess an unsupported or ambiguous locale: %s", language => {
     expect(resolveOfflineLocale(language)).toBeUndefined();
+  });
+
+  it.each([
+    ["zh_TW", "zh-Hant"],
+    ["es-MX", "es-419"],
+    ["de-AT", "de"],
+    ["fil-PH", "tl"],
+  ])("resolves %s when Intl locale helpers are unavailable", (language, expected) => {
+    vi.stubGlobal("Intl", {});
+    expect(resolveOfflineLocale(language)).toBe(expected);
   });
 
   it("keeps an unsupported first preference from hiding a supported later preference", () => {

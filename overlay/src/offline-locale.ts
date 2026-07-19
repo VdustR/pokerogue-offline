@@ -41,11 +41,52 @@ function canonicalizeLocale(language: string): string | undefined {
     return;
   }
 
-  try {
-    return Intl.getCanonicalLocales(normalized)[0];
-  } catch {
-    return;
+  if (typeof Intl !== "undefined" && typeof Intl.getCanonicalLocales === "function") {
+    try {
+      return Intl.getCanonicalLocales(normalized)[0];
+    } catch {
+      return;
+    }
   }
+
+  return normalized;
+}
+
+interface LocaleParts {
+  languageCode: string;
+  script: string | undefined;
+  region: string | undefined;
+}
+
+function parseLocaleParts(language: string): LocaleParts {
+  if (typeof Intl !== "undefined" && typeof Intl.Locale === "function") {
+    try {
+      const locale = new Intl.Locale(language);
+      return {
+        languageCode: locale.language.toLowerCase(),
+        script: locale.script,
+        region: locale.region,
+      };
+    } catch {
+      // Fall through to the small BCP 47 parser for malformed or unsupported tags.
+    }
+  }
+
+  const [languageCode = "", ...subtags] = language.split("-");
+  let script: string | undefined;
+  let region: string | undefined;
+  for (const subtag of subtags) {
+    if (subtag.length === 1) {
+      break;
+    }
+    if (!script && /^[a-z]{4}$/i.test(subtag)) {
+      script = `${subtag[0].toUpperCase()}${subtag.slice(1).toLowerCase()}`;
+    } else if (!region && (/^[a-z]{2}$/i.test(subtag) || /^\d{3}$/.test(subtag))) {
+      region = subtag.toUpperCase();
+    }
+  }
+
+  return { languageCode: languageCode.toLowerCase(), script, region };
 }
 
 function resolveChineseLocale(
@@ -81,10 +122,7 @@ export function resolveOfflineLocale(language: string): SupportedOfflineLocale |
     return exactMatch;
   }
 
-  const locale = new Intl.Locale(canonicalLocale);
-  const languageCode = locale.language.toLowerCase();
-  const script = locale.script;
-  const region = locale.region;
+  const { languageCode, script, region } = parseLocaleParts(canonicalLocale);
 
   if (languageCode === "zh") {
     return resolveChineseLocale(script, region);
@@ -97,7 +135,7 @@ export function resolveOfflineLocale(language: string): SupportedOfflineLocale |
   // Modern operating systems normally report Filipino as `fil`, while the
   // upstream translation is still published under its legacy `tl` code.
   if (languageCode === "fil") {
-    return "tl";
+    return supportedLocaleByLowercase.get("tl");
   }
 
   // Region variants are safe only when upstream ships a language-wide locale,
