@@ -20,7 +20,7 @@ concurrency:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 180
     steps:
       - name: Check out builder
@@ -200,9 +200,12 @@ jobs:
             upload_and_remove "$archive"
           done
 
-      - name: Install Android SDK packages
+      - name: Verify Android SDK packages
         if: steps.release.outputs.should_build == 'true'
-        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+        run: |
+          test -d "$ANDROID_SDK_ROOT/platforms/android-36"
+          test -x "$ANDROID_SDK_ROOT/build-tools/36.0.0/aapt2"
+          test -x "$ANDROID_SDK_ROOT/build-tools/36.0.0/apksigner"
 
       - name: Stage Android assets
         if: steps.release.outputs.should_build == 'true'
