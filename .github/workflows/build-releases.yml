@@ -106,6 +106,8 @@ jobs:
         if: steps.release.outputs.should_build == 'true'
         env:
           POKEROGUE_E2E_SOFTWARE_GL: "1"
+          POKEROGUE_E2E_SYSTEM_LOCALE: zh-TW
+          POKEROGUE_E2E_EXPECTED_LANGUAGE: zh-Hant
         run: |
           mkdir -p builds release
           pnpm --dir upstream build:offline

@@ -12,14 +12,23 @@ const build = JSON.parse(await readFile(path.join(distDirectory, "offline-build.
 const mainPath = path.resolve("desktop/main.mjs");
 const executablePath = process.argv[3] ? path.resolve(process.argv[3]) : undefined;
 const canvasTimeout = Number.parseInt(process.env.POKEROGUE_E2E_CANVAS_TIMEOUT ?? "120000", 10);
-const packagedArgs = process.env.POKEROGUE_E2E_USER_DATA_DIR
+const userDataArgs = process.env.POKEROGUE_E2E_USER_DATA_DIR
   ? [`--user-data-dir=${path.resolve(process.env.POKEROGUE_E2E_USER_DATA_DIR)}`]
   : [];
+const systemLocaleArgs = process.env.POKEROGUE_E2E_SYSTEM_LOCALE
+  ? [`--lang=${process.env.POKEROGUE_E2E_SYSTEM_LOCALE}`]
+  : [];
+const expectedLanguage = process.env.POKEROGUE_E2E_EXPECTED_LANGUAGE;
 const softwareGlArgs = process.env.POKEROGUE_E2E_SOFTWARE_GL === "1"
   ? ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"]
   : [];
 const app = await electron.launch({
-  args: executablePath ? [...softwareGlArgs, ...packagedArgs] : [...softwareGlArgs, mainPath],
+  args: [
+    ...softwareGlArgs,
+    ...userDataArgs,
+    ...systemLocaleArgs,
+    ...(executablePath ? [] : [mainPath]),
+  ],
   executablePath,
   env: {
     ...process.env,
@@ -97,7 +106,9 @@ try {
     }
     return {
       canvasCount: document.querySelectorAll("canvas").length,
+      detectedLanguage: localStorage.getItem("pokerogueOfflineLang"),
       networkBlocked,
+      navigatorLanguages: navigator.languages,
       nodeGlobalExposed: typeof globalThis.process !== "undefined" || typeof globalThis.require !== "undefined",
       origin: location.origin,
       probeKey,
@@ -113,6 +124,7 @@ try {
     || !initialState.networkBlocked
     || initialState.nodeGlobalExposed
     || initialState.origin !== "pokerogue://game"
+    || (expectedLanguage && initialState.detectedLanguage !== expectedLanguage)
     || persisted !== "persisted"
     || pageErrors.length > 0
     || localResourceErrors.length > 0
@@ -124,7 +136,9 @@ try {
     );
   }
 
-  console.log(`Electron E2E passed for ${build.variant}: local save persisted and network was blocked.`);
+  console.log(
+    `Electron E2E passed for ${build.variant}: language=${initialState.detectedLanguage}, local save persisted, and network was blocked.`,
+  );
 } finally {
   await app.close();
 }
