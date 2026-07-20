@@ -58,6 +58,8 @@ On Linux, extract the `.tar.gz` archive and run the included executable. The arc
 
 Android 8.0 or newer is supported. Each APK contains the complete game, requests no `INTERNET` permission, runs in an immersive landscape WebView, serves media with byte-range support, and uses Android's system document picker for save import and export. The status and navigation bars stay hidden during play and can be revealed temporarily with an edge swipe. Display cutouts are applied as a dynamic safe area so a notch or camera hole cannot cover the game controls.
 
+Pressing Android's Back button opens a native confirmation dialog. Cancel returns to the game; Exit stops playback, closes the app, and removes it from Recents.
+
 The app uses PokéRogue's official web-app logo as its launcher icon. It remains landscape to preserve the game's layout, but follows Android's user rotation setting when choosing normal or reverse landscape. It does not force sensor rotation when the user has rotation lock enabled.
 
 1. Download the APK for the preferred edition from the latest Release.

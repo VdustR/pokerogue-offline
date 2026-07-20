@@ -2,6 +2,7 @@ package dev.vdustr.pokerogue.offline;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.res.Configuration;
 import android.graphics.Color;
@@ -24,6 +25,7 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.widget.FrameLayout;
 import android.widget.Toast;
+import android.window.OnBackInvokedDispatcher;
 
 import org.json.JSONObject;
 
@@ -37,6 +39,7 @@ public final class MainActivity extends Activity {
 
     private FrameLayout rootView;
     private WebView webView;
+    private AlertDialog exitConfirmationDialog;
     private ValueCallback<Uri[]> fileChooserCallback;
     private byte[] pendingDownload;
     private String pendingDownloadMimeType;
@@ -107,10 +110,79 @@ public final class MainActivity extends Activity {
         ));
         applyDisplayCutoutSafeArea();
         setContentView(rootView);
+        registerBackHandler();
         getWindow().getDecorView().post(this::hideSystemBars);
         if (savedInstanceState == null || webView.restoreState(savedInstanceState) == null) {
             webView.loadUrl(OfflineAssetWebViewClient.APP_ORIGIN + "/index.html");
         }
+    }
+
+    private void registerBackHandler() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            Api33BackHandler.register(this, this::showExitConfirmation);
+        }
+    }
+
+    @SuppressLint("NewApi")
+    private static final class Api33BackHandler {
+        private Api33BackHandler() {}
+
+        private static void register(Activity activity, Runnable callback) {
+            activity.getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
+                OnBackInvokedDispatcher.PRIORITY_DEFAULT,
+                callback::run
+            );
+        }
+    }
+
+    @Override
+    @SuppressLint("GestureBackNavigation")
+    @SuppressWarnings("deprecation")
+    public void onBackPressed() {
+        // API 33+ gestures use the registered OnBackInvokedCallback. This override is the
+        // framework-only fallback for API 26-32, where OnBackPressedDispatcher is unavailable.
+        showExitConfirmation();
+    }
+
+    private void showExitConfirmation() {
+        if (isFinishing() || isDestroyed()) {
+            return;
+        }
+        if (exitConfirmationDialog != null && exitConfirmationDialog.isShowing()) {
+            return;
+        }
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+            .setTitle(R.string.exit_dialog_title)
+            .setMessage(R.string.exit_dialog_message)
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(R.string.exit_dialog_confirm, (ignoredDialog, ignoredButton) -> closeApp())
+            .create();
+        Window dialogWindow = dialog.getWindow();
+        if (dialogWindow != null) {
+            dialogWindow.setFlags(
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+            );
+        }
+        dialog.setOnShowListener(ignored -> {
+            hideSystemBars(dialogWindow);
+            if (dialogWindow != null) {
+                dialogWindow.clearFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE);
+            }
+        });
+        dialog.setOnDismissListener(ignored -> {
+            exitConfirmationDialog = null;
+            if (!isFinishing() && !isDestroyed()) {
+                hideSystemBars();
+            }
+        });
+        exitConfirmationDialog = dialog;
+        dialog.show();
+    }
+
+    private void closeApp() {
+        finishAndRemoveTask();
     }
 
     private void configureFullscreenWindow() {
@@ -135,7 +207,14 @@ public final class MainActivity extends Activity {
 
     @SuppressWarnings("deprecation")
     private void hideSystemBars() {
-        Window window = getWindow();
+        hideSystemBars(getWindow());
+    }
+
+    @SuppressWarnings("deprecation")
+    private void hideSystemBars(Window window) {
+        if (window == null) {
+            return;
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             WindowInsetsController controller = window.getInsetsController();
             if (controller != null) {
@@ -242,6 +321,10 @@ public final class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        if (exitConfirmationDialog != null) {
+            exitConfirmationDialog.dismiss();
+            exitConfirmationDialog = null;
+        }
         webView.removeJavascriptInterface("PokerogueAndroid");
         webView.stopLoading();
         webView.destroy();

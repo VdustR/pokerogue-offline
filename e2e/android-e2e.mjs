@@ -11,6 +11,13 @@ function adb(...args) {
   return execFileSync("adb", ["-s", serial, ...args], { encoding: "utf8" }).trim();
 }
 
+function adbWithTimeout(timeout, ...args) {
+  return execFileSync("adb", ["-s", serial, ...args], {
+    encoding: "utf8",
+    timeout,
+  }).trim();
+}
+
 function wait(milliseconds) {
   return new Promise(resolve => setTimeout(resolve, milliseconds));
 }
@@ -19,6 +26,79 @@ function allInsetsHidden(windowState, type) {
   const visibilityPattern = new RegExp(`type=${type}[^\\n]*visible=(true|false)`, "g");
   const visibilities = [...windowState.matchAll(visibilityPattern)].map(match => match[1]);
   return visibilities.length > 0 && visibilities.every(visibility => visibility === "false");
+}
+
+function hasActiveMediaPlayback(audioState, processId) {
+  const playbackPattern = new RegExp(
+    `AudioPlaybackConfiguration[^\\n]*u/pid:\\d+/${processId}[^\\n]*state:started[^\\n]*usage=USAGE_MEDIA`,
+  );
+  return playbackPattern.test(audioState);
+}
+
+async function waitForMediaPlayback(processId, expectedActive, timeout = 5_000) {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    const active = hasActiveMediaPlayback(adb("shell", "dumpsys", "audio"), processId);
+    if (active === expectedActive) return true;
+    await wait(250);
+  }
+  return false;
+}
+
+function dumpUi() {
+  const path = "/sdcard/pokerogue-e2e-window.xml";
+  try {
+    adbWithTimeout(15_000, "shell", "uiautomator", "dump", path);
+    return adbWithTimeout(5_000, "shell", "cat", path);
+  } catch (error) {
+    throw new Error("UI Automator did not respond while capturing the Android window", {
+      cause: error,
+    });
+  }
+}
+
+function findUiNodeCenter(ui, resourceId) {
+  for (const match of ui.matchAll(/<node\b[^>]*>/g)) {
+    const node = match[0];
+    const resourceIdMatch = node.match(/\bresource-id="([^"]*)"/);
+    if (resourceIdMatch?.[1] !== resourceId) continue;
+    const bounds = node.match(/\bbounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/);
+    if (!bounds) continue;
+    return {
+      x: Math.round((Number(bounds[1]) + Number(bounds[3])) / 2),
+      y: Math.round((Number(bounds[2]) + Number(bounds[4])) / 2),
+    };
+  }
+  return undefined;
+}
+
+async function waitForUiNode(resourceId, expectedPresent, timeout = 10_000) {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    const center = findUiNodeCenter(dumpUi(), resourceId);
+    if (Boolean(center) === expectedPresent) return { center };
+    await wait(250);
+  }
+  return undefined;
+}
+
+function hasAppTask(activityState) {
+  return activityState.split("\n").some(line =>
+    line.includes("* Task{") && line.includes(`:${packageName}`),
+  );
+}
+
+async function waitForAppTaskRemoved(timeout = 10_000) {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    if (!hasAppTask(adb("shell", "dumpsys", "activity", "activities"))) return true;
+    await wait(250);
+  }
+  return false;
+}
+
+function triggerSystemBack() {
+  adb("shell", "input", "keyevent", "KEYCODE_BACK");
 }
 
 async function connectCdp(webSocketUrl) {
@@ -108,6 +188,10 @@ async function waitForCanvas(cdp) {
 }
 
 adb("shell", "am", "force-stop", packageName);
+adb("shell", "input", "keyevent", "KEYCODE_WAKEUP");
+await wait(500);
+adb("shell", "wm", "dismiss-keyguard");
+await wait(500);
 adb("shell", "am", "start", "-W", "-n", `${packageName}/dev.vdustr.pokerogue.offline.MainActivity`);
 
 let processId;
@@ -182,6 +266,38 @@ try {
   const usesUserLandscape = activityState.includes("requestedOrientation=SCREEN_ORIENTATION_USER_LANDSCAPE");
   const navigationBarHidden = allInsetsHidden(windowState, "navigationBars");
   const statusBarHidden = allInsetsHidden(windowState, "statusBars");
+  const audioProbeStarted = await evaluate(cdp, `(async () => {
+    const context = new AudioContext();
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+    gain.gain.value = 0.00001;
+    oscillator.connect(gain).connect(context.destination);
+    oscillator.start();
+    await context.resume();
+    window.__pokerogueAndroidE2eAudio = { context, oscillator };
+    return context.state === "running";
+  })()`);
+  const audioPlayingBeforeExit = audioProbeStarted
+    && await waitForMediaPlayback(processId, true);
+  triggerSystemBack();
+  const cancelButton = (await waitForUiNode("android:id/button2", true))?.center;
+  const exitConfirmationShown = Boolean(cancelButton)
+    && Boolean(findUiNodeCenter(dumpUi(), "android:id/button1"));
+  if (cancelButton) {
+    adb("shell", "input", "tap", String(cancelButton.x), String(cancelButton.y));
+  }
+  const exitConfirmationDismissed = Boolean(
+    await waitForUiNode("android:id/button2", false),
+  );
+  const audioStillPlayingAfterCancel = await waitForMediaPlayback(processId, true);
+
+  triggerSystemBack();
+  const exitButton = (await waitForUiNode("android:id/button1", true))?.center;
+  if (exitButton) {
+    adb("shell", "input", "tap", String(exitButton.x), String(exitButton.y));
+  }
+  const appTaskRemoved = await waitForAppTaskRemoved();
+  const audioStoppedAfterExit = await waitForMediaPlayback(processId, false);
 
   if (
     initialState.canvasCount === 0
@@ -193,11 +309,24 @@ try {
     || !usesUserLandscape
     || !navigationBarHidden
     || !statusBarHidden
+    || !audioPlayingBeforeExit
+    || !exitConfirmationShown
+    || !exitConfirmationDismissed
+    || !audioStillPlayingAfterCancel
+    || !exitButton
+    || !appTaskRemoved
+    || !audioStoppedAfterExit
     || pageErrors.length > 0
   ) {
     throw new Error(
       `Android E2E failed: ${JSON.stringify({
         initialState,
+        appTaskRemoved,
+        audioPlayingBeforeExit,
+        audioStillPlayingAfterCancel,
+        audioStoppedAfterExit,
+        exitConfirmationDismissed,
+        exitConfirmationShown,
         navigationBarHidden,
         pageErrors,
         persisted,
@@ -208,7 +337,7 @@ try {
   }
 
   console.log(
-    `Android E2E passed for ${packageName}: language=${initialState.detectedLanguage}, local save persisted, network was blocked, system bars were hidden, and user landscape was honored.`,
+    `Android E2E passed for ${packageName}: language=${initialState.detectedLanguage}, local save persisted, network was blocked, system bars were hidden, user landscape was honored, Back confirmation canceled safely, and confirmed exit removed the task and stopped audio.`,
   );
 } finally {
   cdp?.close();
