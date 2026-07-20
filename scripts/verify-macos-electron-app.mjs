@@ -20,10 +20,14 @@ const iconFile = execFileSync(
   { encoding: "utf8" },
 ).trim();
 
-if (!iconFile || iconFile === "electron.icns") {
+if (!iconFile) {
   throw new Error(`macOS app still uses the default Electron icon: ${iconFile || "<missing>"}`);
 }
-const iconPath = path.join(contentsPath, "Resources", iconFile);
+const normalizedIconFile = iconFile.endsWith(".icns") ? iconFile : `${iconFile}.icns`;
+if (normalizedIconFile === "electron.icns") {
+  throw new Error(`macOS app still uses the default Electron icon: ${iconFile}`);
+}
+const iconPath = path.join(contentsPath, "Resources", normalizedIconFile);
 await access(iconPath);
 const iconMetadata = execFileSync(
   "/usr/bin/sips",
