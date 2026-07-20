@@ -11,6 +11,13 @@ function adb(...args) {
   return execFileSync("adb", ["-s", serial, ...args], { encoding: "utf8" }).trim();
 }
 
+function adbWithTimeout(timeout, ...args) {
+  return execFileSync("adb", ["-s", serial, ...args], {
+    encoding: "utf8",
+    timeout,
+  }).trim();
+}
+
 function wait(milliseconds) {
   return new Promise(resolve => setTimeout(resolve, milliseconds));
 }
@@ -40,16 +47,21 @@ async function waitForMediaPlayback(processId, expectedActive, timeout = 5_000) 
 
 function dumpUi() {
   const path = "/sdcard/pokerogue-e2e-window.xml";
-  adb("shell", "uiautomator", "dump", path);
-  return adb("shell", "cat", path);
+  try {
+    adbWithTimeout(15_000, "shell", "uiautomator", "dump", path);
+    return adbWithTimeout(5_000, "shell", "cat", path);
+  } catch (error) {
+    throw new Error("UI Automator did not respond while capturing the Android window", {
+      cause: error,
+    });
+  }
 }
 
-function findUiNodeCenter(ui, text) {
-  const normalizedText = text.toLocaleLowerCase("en-US");
+function findUiNodeCenter(ui, resourceId) {
   for (const match of ui.matchAll(/<node\b[^>]*>/g)) {
     const node = match[0];
-    const textMatch = node.match(/\btext="([^"]*)"/);
-    if (textMatch?.[1].toLocaleLowerCase("en-US") !== normalizedText) continue;
+    const resourceIdMatch = node.match(/\bresource-id="([^"]*)"/);
+    if (resourceIdMatch?.[1] !== resourceId) continue;
     const bounds = node.match(/\bbounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/);
     if (!bounds) continue;
     return {
@@ -60,10 +72,10 @@ function findUiNodeCenter(ui, text) {
   return undefined;
 }
 
-async function waitForUiNode(text, expectedPresent, timeout = 10_000) {
+async function waitForUiNode(resourceId, expectedPresent, timeout = 10_000) {
   const deadline = Date.now() + timeout;
   while (Date.now() < deadline) {
-    const center = findUiNodeCenter(dumpUi(), text);
+    const center = findUiNodeCenter(dumpUi(), resourceId);
     if (Boolean(center) === expectedPresent) return { center };
     await wait(250);
   }
@@ -268,17 +280,19 @@ try {
   const audioPlayingBeforeExit = audioProbeStarted
     && await waitForMediaPlayback(processId, true);
   triggerSystemBack();
-  const cancelButton = (await waitForUiNode("Cancel", true))?.center;
+  const cancelButton = (await waitForUiNode("android:id/button2", true))?.center;
   const exitConfirmationShown = Boolean(cancelButton)
-    && Boolean(findUiNodeCenter(dumpUi(), "Exit PokéRogue?"));
+    && Boolean(findUiNodeCenter(dumpUi(), "android:id/button1"));
   if (cancelButton) {
     adb("shell", "input", "tap", String(cancelButton.x), String(cancelButton.y));
   }
-  const exitConfirmationDismissed = Boolean(await waitForUiNode("Cancel", false));
+  const exitConfirmationDismissed = Boolean(
+    await waitForUiNode("android:id/button2", false),
+  );
   const audioStillPlayingAfterCancel = await waitForMediaPlayback(processId, true);
 
   triggerSystemBack();
-  const exitButton = (await waitForUiNode("Exit", true))?.center;
+  const exitButton = (await waitForUiNode("android:id/button1", true))?.center;
   if (exitButton) {
     adb("shell", "input", "tap", String(exitButton.x), String(exitButton.y));
   }

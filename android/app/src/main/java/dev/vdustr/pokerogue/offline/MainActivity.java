@@ -119,9 +119,18 @@ public final class MainActivity extends Activity {
 
     private void registerBackHandler() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
+            Api33BackHandler.register(this, this::showExitConfirmation);
+        }
+    }
+
+    @SuppressLint("NewApi")
+    private static final class Api33BackHandler {
+        private Api33BackHandler() {}
+
+        private static void register(Activity activity, Runnable callback) {
+            activity.getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
                 OnBackInvokedDispatcher.PRIORITY_DEFAULT,
-                this::showExitConfirmation
+                callback::run
             );
         }
     }
