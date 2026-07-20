@@ -14,11 +14,16 @@ if (process.platform !== "darwin") {
 const appPath = path.resolve(appArgument);
 const contentsPath = path.join(appPath, "Contents");
 const infoPlistPath = path.join(contentsPath, "Info.plist");
-const iconFile = execFileSync(
-  "/usr/bin/plutil",
-  ["-extract", "CFBundleIconFile", "raw", "-o", "-", infoPlistPath],
-  { encoding: "utf8" },
-).trim();
+let iconFile = "";
+try {
+  iconFile = execFileSync(
+    "/usr/bin/plutil",
+    ["-extract", "CFBundleIconFile", "raw", "-o", "-", infoPlistPath],
+    { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+  ).trim();
+} catch {
+  // The explicit error below also covers a missing or unreadable Info.plist key.
+}
 
 if (!iconFile) {
   throw new Error(`macOS app still uses the default Electron icon: ${iconFile || "<missing>"}`);
