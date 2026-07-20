@@ -161,7 +161,7 @@ public final class MainActivity extends Activity {
         dialog.setOnShowListener(ignored -> hideSystemBars(dialog.getWindow()));
         dialog.setOnDismissListener(ignored -> {
             exitConfirmationDialog = null;
-            if (!isFinishing()) {
+            if (!isFinishing() && !isDestroyed()) {
                 hideSystemBars();
             }
         });
