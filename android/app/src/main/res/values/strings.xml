@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="exit_dialog_title">Exit PokéRogue?</string>
+    <string name="exit_dialog_message">Any progress that has not been saved may be lost.</string>
+    <string name="exit_dialog_confirm">Exit</string>
+</resources>
