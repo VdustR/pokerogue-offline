@@ -327,6 +327,7 @@ jobs:
           repository: pagefaultgames/pokerogue
           ref: main
           fetch-depth: 1
+          submodules: recursive
           path: upstream
 
       - name: Set up pnpm
