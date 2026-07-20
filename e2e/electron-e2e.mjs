@@ -24,6 +24,7 @@ const softwareGlArgs = process.env.POKEROGUE_E2E_SOFTWARE_GL === "1"
   : [];
 const app = await electron.launch({
   args: [
+    "--enable-logging=stderr",
     ...softwareGlArgs,
     ...userDataArgs,
     ...systemLocaleArgs,
@@ -32,15 +33,25 @@ const app = await electron.launch({
   executablePath,
   env: {
     ...process.env,
+    ELECTRON_ENABLE_LOGGING: "1",
     ...(executablePath ? {} : { POKEROGUE_GAME_DIR: distDirectory }),
   },
   timeout: 120_000,
 });
 const processErrors = [];
+const processLifecycle = [];
 app.process().stderr?.on("data", chunk => processErrors.push(String(chunk)));
+app.process().once("exit", (code, signal) => {
+  processLifecycle.push({ code, event: "exit", signal });
+});
+app.once("close", () => processLifecycle.push({ event: "application-close" }));
+const windowLifecycle = [];
+let window;
 
 try {
-  const window = await app.firstWindow({ timeout: 120_000 });
+  window = await app.firstWindow({ timeout: 120_000 });
+  window.once("close", () => windowLifecycle.push({ event: "page-close" }));
+  window.once("crash", () => windowLifecycle.push({ event: "page-crash" }));
   const pageErrors = [];
   const consoleErrors = [];
   const localResourceErrors = [];
@@ -139,6 +150,26 @@ try {
   console.log(
     `Electron E2E passed for ${build.variant}: language=${initialState.detectedLanguage}, local save persisted, and network was blocked.`,
   );
+} catch (error) {
+  let windowDiagnostic = { closed: !window || window.isClosed() };
+  if (window && !window.isClosed()) {
+    windowDiagnostic = await window.evaluate(() => ({
+      canvasCount: document.querySelectorAll("canvas").length,
+      closed: false,
+      readyState: document.readyState,
+      title: document.title,
+      url: location.href,
+    })).catch(diagnosticError => ({
+      closed: window.isClosed(),
+      diagnosticError: String(diagnosticError),
+    }));
+  }
+  throw new Error(
+    `Electron E2E terminated unexpectedly: ${JSON.stringify({ processLifecycle, processErrors, windowLifecycle, windowDiagnostic })}`,
+    { cause: error },
+  );
 } finally {
-  await app.close();
+  if (app.process().exitCode === null) {
+    await app.close();
+  }
 }

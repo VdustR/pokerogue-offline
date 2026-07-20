@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { packager } from "@electron/packager";
+import { createElectronIcons } from "./electron-icons.mjs";
 
 const [distArgument, outputArgument, platform, arch] = process.argv.slice(2);
 if (!distArgument || !outputArgument || !platform || !arch) {
@@ -35,9 +36,11 @@ const buildVersion = versionParts.slice(0, 4).join(".");
 const temporaryDirectory = await mkdtemp(path.join(os.tmpdir(), "pokerogue-electron-"));
 const appDirectory = path.join(temporaryDirectory, "app");
 const packagedDirectory = path.join(temporaryDirectory, "packaged");
+const iconBasePath = path.join(temporaryDirectory, "pokerogue");
 
 try {
   await mkdir(appDirectory, { recursive: true });
+  await createElectronIcons(distDirectory, iconBasePath);
   await cp(path.resolve("desktop/main.mjs"), path.join(appDirectory, "main.mjs"));
   await writeFile(
     path.join(appDirectory, "package.json"),
@@ -64,6 +67,8 @@ try {
     buildVersion,
     dir: appDirectory,
     electronVersion: "43.1.1",
+    extendInfo: platform === "darwin" ? { CFBundleIconFile: "pokerogue.icns" } : undefined,
+    icon: platform === "linux" ? undefined : iconBasePath,
     name: appName,
     out: packagedDirectory,
     overwrite: true,

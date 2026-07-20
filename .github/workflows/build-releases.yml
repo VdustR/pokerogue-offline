@@ -22,6 +22,11 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     timeout-minutes: 180
+    outputs:
+      should_build: ${{ steps.release.outputs.should_build }}
+      should_release: ${{ steps.release.outputs.should_release }}
+      tag: ${{ steps.release.outputs.tag }}
+      upstream_short: ${{ steps.release.outputs.upstream_short }}
     steps:
       - name: Check out builder
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
@@ -162,7 +167,8 @@ jobs:
             else
               executable="../packaged-test/$variant/Pokerogue Unlock All-linux-x64/Pokerogue Unlock All"
             fi
-            xvfb-run -a pnpm e2e:electron "../builds/$variant" "$executable"
+            POKEROGUE_E2E_USER_DATA_DIR="../packaged-test/$variant/user-data" \
+              xvfb-run -a pnpm e2e:electron "../builds/$variant" "$executable"
             rm -rf "../packaged-test/$variant"
             if [[ "${{ steps.release.outputs.should_release }}" == "true" ]]; then
               archive_name="$(basename "$archive")"
@@ -182,8 +188,11 @@ jobs:
           upstream_short="${{ steps.release.outputs.upstream_short }}"
           upload_and_remove() {
             archive="$1"
+            include_checksum="${2:-true}"
             archive_name="$(basename "$archive")"
-            (cd ../release && sha256sum "$archive_name" >> SHA256SUMS.txt)
+            if [[ "$include_checksum" == "true" ]]; then
+              (cd ../release && sha256sum "$archive_name" >> SHA256SUMS.txt)
+            fi
             gh release upload "${{ steps.release.outputs.tag }}" "$archive" \
               --repo "$GITHUB_REPOSITORY"
             rm "$archive"
@@ -191,11 +200,11 @@ jobs:
           for variant in normal unlock-all; do
             archive="../release/pokerogue-$variant-electron-macos-arm64-$upstream_short.zip"
             node scripts/package-electron.mjs "../builds/$variant" "$archive" darwin arm64
-            upload_and_remove "$archive"
+            upload_and_remove "$archive" false
 
             archive="../release/pokerogue-$variant-electron-macos-x64-$upstream_short.zip"
             node scripts/package-electron.mjs "../builds/$variant" "$archive" darwin x64
-            upload_and_remove "$archive"
+            upload_and_remove "$archive" false
 
             archive="../release/pokerogue-$variant-electron-windows-x64-$upstream_short.zip"
             node scripts/package-electron.mjs "../builds/$variant" "$archive" win32 x64
@@ -283,16 +292,13 @@ jobs:
             rm "$apk"
           done
 
-      - name: Publish verified release
+      - name: Stage checksum manifest
         if: steps.release.outputs.should_release == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release upload "${{ steps.release.outputs.tag }}" release/SHA256SUMS.txt \
             --repo "$GITHUB_REPOSITORY"
-          gh release edit "${{ steps.release.outputs.tag }}" \
-            --repo "$GITHUB_REPOSITORY" \
-            --draft=false
 
       - name: Remove incomplete draft release
         if: ${{ always() && steps.release.outputs.should_release == 'true' && !success() }}
@@ -300,6 +306,117 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release delete "${{ steps.release.outputs.tag }}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --cleanup-tag \
+            --yes || true
+
+  finalize-macos:
+    needs: build
+    if: needs.build.outputs.should_build == 'true'
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - name: Check out builder
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          path: builder
+
+      - name: Check out official PokéRogue icons
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          repository: pagefaultgames/pokerogue
+          ref: main
+          fetch-depth: 1
+          path: upstream
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5
+        with:
+          version: 10.33.2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: upstream/.nvmrc
+          cache: pnpm
+          cache-dependency-path: builder/pnpm-lock.yaml
+
+      - name: Install builder dependencies
+        run: pnpm --dir builder install --frozen-lockfile
+
+      - name: Verify macOS packaging with a minimal app
+        working-directory: builder
+        run: |
+          fixture="$RUNNER_TEMP/electron-fixture"
+          archive="$RUNNER_TEMP/electron-fixture.zip"
+          extracted="$RUNNER_TEMP/electron-fixture-extracted"
+          mkdir -p "$fixture" "$extracted"
+          cp ../upstream/assets/logo128.png ../upstream/assets/logo512.png "$fixture/"
+          cp e2e/fixtures/offline-build.json "$fixture/"
+          node scripts/package-electron.mjs "$fixture" "$archive" darwin arm64
+          ditto -x -k "$archive" "$extracted"
+          node scripts/finalize-macos-electron-app.mjs \
+            "$extracted/Pokerogue Offline-darwin-arm64/Pokerogue Offline.app"
+
+      - name: Finalize macOS release archives
+        if: needs.build.outputs.should_release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        working-directory: builder
+        run: |
+          release_dir="$RUNNER_TEMP/release"
+          mkdir -p "$release_dir"
+          gh release download "${{ needs.build.outputs.tag }}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'pokerogue-*-electron-macos-*.zip' \
+            --pattern SHA256SUMS.txt \
+            --dir "$release_dir"
+
+          for archive in "$release_dir"/pokerogue-*-electron-macos-*.zip; do
+            extracted="${archive%.zip}"
+            mkdir -p "$extracted"
+            ditto -x -k "$archive" "$extracted"
+            root_name="$(find "$extracted" -mindepth 1 -maxdepth 1 -type d -print -quit)"
+            app_path="$(find "$root_name" -mindepth 1 -maxdepth 1 -type d -name '*.app' -print -quit)"
+            if [[ -z "$root_name" || -z "$app_path" ]]; then
+              echo "macOS archive has an unexpected layout: $archive" >&2
+              exit 1
+            fi
+
+            node scripts/finalize-macos-electron-app.mjs "$app_path"
+            executable_name="$(plutil -extract CFBundleExecutable raw -o - "$app_path/Contents/Info.plist")"
+            executable_path="$app_path/Contents/MacOS/$executable_name"
+            if [[ " $(lipo -archs "$executable_path") " == *" $(uname -m) "* ]]; then
+              POKEROGUE_E2E_USER_DATA_DIR="$RUNNER_TEMP/e2e-$(basename "$archive" .zip)" \
+                POKEROGUE_E2E_SYSTEM_LOCALE=zh-TW \
+                POKEROGUE_E2E_EXPECTED_LANGUAGE=zh-Hant \
+                pnpm e2e:electron \
+                  "$app_path/Contents/Resources/game" \
+                  "$executable_path"
+            else
+              echo "Skipping non-native launch E2E for $(lipo -archs "$executable_path") on $(uname -m)"
+            fi
+            rm "$archive"
+            (cd "$extracted" && zip -qry -y "$archive" "$(basename "$root_name")")
+            (cd "$release_dir" && shasum -a 256 "$(basename "$archive")" >> SHA256SUMS.txt)
+            gh release upload "${{ needs.build.outputs.tag }}" "$archive" \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber
+          done
+
+          gh release upload "${{ needs.build.outputs.tag }}" "$release_dir/SHA256SUMS.txt" \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber
+          gh release edit "${{ needs.build.outputs.tag }}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --draft=false
+
+      - name: Remove incomplete draft release
+        if: ${{ always() && needs.build.outputs.should_release == 'true' && !success() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete "${{ needs.build.outputs.tag }}" \
             --repo "$GITHUB_REPOSITORY" \
             --cleanup-tag \
             --yes || true
