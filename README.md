@@ -39,14 +39,16 @@ Desktop builds keep the small Electron shell in ASAR and place the complete game
 
 ### macOS installation and Gatekeeper
 
-These community builds are not signed with an Apple Developer ID and are not notarized. macOS may report that it cannot verify the developer. Keep Gatekeeper enabled and use Apple's per-app override:
+These community builds have a complete ad-hoc bundle signature, but are not signed with an Apple Developer ID and are not notarized. macOS may report that it cannot verify the developer. Keep Gatekeeper enabled and use Apple's per-app override:
 
 1. Download the ZIP matching the Mac processor and extract it.
 2. Move the `.app` into `/Applications`.
-3. Control-click the app in Finder, choose **Open**, then choose **Open** again.
-4. If macOS still blocks it, open **System Settings → Privacy & Security**. In the **Security** section, choose **Open Anyway** for the blocked PokéRogue app, authenticate, then confirm **Open**.
+3. Double-click the app once. If macOS blocks it, choose **Done**.
+4. Within about one hour, open **System Settings → Privacy & Security**. In the **Security** section, choose **Open Anyway** for the blocked PokéRogue app, authenticate, then confirm **Open**.
 
 The override is remembered for that app. Do not disable Gatekeeper globally. Verify the download against `SHA256SUMS.txt` before opening it.
+
+Do not bypass a warning that says the app **is damaged** or **will damage your computer**. Re-download it, verify its checksum, and report the release instead; those warnings are different from the expected unidentified-developer warning.
 
 ### Windows and Linux
 

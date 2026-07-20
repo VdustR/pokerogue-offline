@@ -148,6 +148,7 @@ function createWindow() {
     minWidth: 960,
     minHeight: 540,
     backgroundColor: "#000000",
+    icon: path.join(getGameDirectory(), "logo512.png"),
     show: false,
     autoHideMenuBar: true,
     title: app.getName(),
