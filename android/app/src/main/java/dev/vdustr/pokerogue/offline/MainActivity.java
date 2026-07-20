@@ -158,7 +158,19 @@ public final class MainActivity extends Activity {
             .setNegativeButton(android.R.string.cancel, null)
             .setPositiveButton(R.string.exit_dialog_confirm, (ignoredDialog, ignoredButton) -> closeApp())
             .create();
-        dialog.setOnShowListener(ignored -> hideSystemBars(dialog.getWindow()));
+        Window dialogWindow = dialog.getWindow();
+        if (dialogWindow != null) {
+            dialogWindow.setFlags(
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+            );
+        }
+        dialog.setOnShowListener(ignored -> {
+            hideSystemBars(dialogWindow);
+            if (dialogWindow != null) {
+                dialogWindow.clearFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE);
+            }
+        });
         dialog.setOnDismissListener(ignored -> {
             exitConfirmationDialog = null;
             if (!isFinishing() && !isDestroyed()) {
