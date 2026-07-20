@@ -170,6 +170,12 @@ try {
   );
 } finally {
   if (app.process().exitCode === null) {
-    await app.close();
+    await app.close().catch(() => {
+      try {
+        app.process().kill();
+      } catch {
+        // Cleanup failures must not replace the original E2E result.
+      }
+    });
   }
 }
