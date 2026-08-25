@@ -176,7 +176,7 @@ index 1daa9b6..0a22e04 100644
 +    }
    }
  
-   public async initSystem(systemDataStr: string, cachedSystemDataStr?: string): Promise<boolean> {
+   private async initSystem(systemDataStr: string, cachedSystemDataStr?: string): Promise<boolean> {
 diff --git a/src/vite.env.d.ts b/src/vite.env.d.ts
 index fdd26e4..d0a93aa 100644
 --- a/src/vite.env.d.ts
