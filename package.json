@@ -10,7 +10,7 @@
   },
   "devDependencies": {
     "@electron/packager": "20.0.3",
-    "electron": "43.1.1",
+    "electron": "43.5.0",
     "playwright-core": "1.61.1"
   },
   "packageManager": "pnpm@10.33.2"
