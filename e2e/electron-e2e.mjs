@@ -1,7 +1,11 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { createRequire } from "node:module";
 import process from "node:process";
 import { _electron as electron } from "playwright-core";
+
+const require = createRequire(import.meta.url);
+const expectedElectronVersion = require("electron/package.json").version;
 
 const distDirectory = path.resolve(process.argv[2] ?? "");
 if (!process.argv[2]) {
@@ -49,6 +53,10 @@ const windowLifecycle = [];
 let window;
 
 try {
+  const actualElectronVersion = await app.evaluate(() => process.versions.electron);
+  if (actualElectronVersion !== expectedElectronVersion) {
+    throw new Error(`Electron runtime ${actualElectronVersion} does not match installed version ${expectedElectronVersion}`);
+  }
   window = await app.firstWindow({ timeout: 120_000 });
   window.once("close", () => windowLifecycle.push({ event: "page-close" }));
   window.once("crash", () => windowLifecycle.push({ event: "page-crash" }));

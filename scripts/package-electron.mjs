@@ -1,10 +1,14 @@
 import { execFileSync } from "node:child_process";
 import { cp, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
+import { createRequire } from "node:module";
 import path from "node:path";
 import process from "node:process";
 import { packager } from "@electron/packager";
 import { createElectronIcons } from "./electron-icons.mjs";
+
+const require = createRequire(import.meta.url);
+const electronVersion = require("electron/package.json").version;
 
 const [distArgument, outputArgument, platform, arch] = process.argv.slice(2);
 if (!distArgument || !outputArgument || !platform || !arch) {
@@ -66,7 +70,7 @@ try {
     asar: true,
     buildVersion,
     dir: appDirectory,
-    electronVersion: "43.1.1",
+    electronVersion,
     extendInfo: platform === "darwin" ? { CFBundleIconFile: "pokerogue.icns" } : undefined,
     icon: platform === "linux" ? undefined : iconBasePath,
     name: appName,
