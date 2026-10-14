@@ -53,13 +53,13 @@ const windowLifecycle = [];
 let window;
 
 try {
+  window = await app.firstWindow({ timeout: 120_000 });
+  window.once("close", () => windowLifecycle.push({ event: "page-close" }));
+  window.once("crash", () => windowLifecycle.push({ event: "page-crash" }));
   const actualElectronVersion = await app.evaluate(() => process.versions.electron);
   if (actualElectronVersion !== expectedElectronVersion) {
     throw new Error(`Electron runtime ${actualElectronVersion} does not match installed version ${expectedElectronVersion}`);
   }
-  window = await app.firstWindow({ timeout: 120_000 });
-  window.once("close", () => windowLifecycle.push({ event: "page-close" }));
-  window.once("crash", () => windowLifecycle.push({ event: "page-crash" }));
   const pageErrors = [];
   const consoleErrors = [];
   const localResourceErrors = [];
