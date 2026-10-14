@@ -98,10 +98,6 @@ jobs:
           pnpm --dir builder install --frozen-lockfile
           pnpm --dir upstream install --frozen-lockfile
 
-      - name: Verify Electron security regression contracts
-        if: steps.release.outputs.should_build == 'true'
-        run: xvfb-run -a pnpm --dir builder e2e:electron-security
-
       - name: Apply fail-closed offline overlay
         if: steps.release.outputs.should_build == 'true'
         run: bash builder/scripts/apply-overlay.sh upstream
@@ -349,6 +345,9 @@ jobs:
 
       - name: Install builder dependencies
         run: pnpm --dir builder install --frozen-lockfile
+
+      - name: Verify Electron security regression contracts
+        run: pnpm --dir builder e2e:electron-security
 
       - name: Verify macOS packaging with a minimal app
         working-directory: builder
