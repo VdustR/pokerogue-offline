@@ -346,6 +346,9 @@ jobs:
       - name: Install builder dependencies
         run: pnpm --dir builder install --frozen-lockfile
 
+      - name: Verify Electron security regression contracts
+        run: pnpm --dir builder e2e:electron-security
+
       - name: Verify macOS packaging with a minimal app
         working-directory: builder
         run: |
