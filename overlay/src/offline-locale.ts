@@ -1,4 +1,4 @@
-import { supportedLngs } from "#app/i18n-supported-lngs";
+import { SUPPORTED_LANGUAGES as supportedLngs } from "#system/supported-languages";
 
 export const OFFLINE_LANGUAGE_STORAGE_KEY = "pokerogueOfflineLang";
 
