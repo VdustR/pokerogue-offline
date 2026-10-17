@@ -1,5 +1,5 @@
 diff --git a/index.html b/index.html
-index 630a850..c888ce8 100644
+index 630a8501..c888ce8d 100644
 --- a/index.html
 +++ b/index.html
 @@ -44,19 +44,6 @@ SPDX-License-Identifier: AGPL-3.0-only
@@ -22,76 +22,8 @@ index 630a850..c888ce8 100644
      window.addEventListener('beforeinstallprompt', e => {
        // Prevent invasive install prompt (users are still able to install as an app)
        e.preventDefault();
-diff --git a/src/i18n.ts b/src/i18n.ts
-index 1b332fe..a7bdc89 100644
---- a/src/i18n.ts
-+++ b/src/i18n.ts
-@@ -1,5 +1,6 @@
- import { timedEventManager } from "#app/global-event-manager";
- import { namespaceMap } from "#app/i18n-namespace-map";
-+import { normalizeOfflineLocale, OFFLINE_LANGUAGE_STORAGE_KEY } from "#app/offline-locale";
- import { getCachedUrl } from "#utils/fetch-utils";
- import { toKebabCase } from "#utils/strings";
- import i18next from "i18next";
-@@ -183,8 +184,9 @@ await i18next
-       defaultNS: "menu",
-       detection: {
--        lookupLocalStorage: "prLang",
-+        lookupLocalStorage: OFFLINE_LANGUAGE_STORAGE_KEY,
-         caches: ["localStorage"],
-         order: ["localStorage", "navigator"],
-+        convertDetectedLanguage: normalizeOfflineLocale,
-       },
-       ns: nsEn,
-       debug: import.meta.env.VITE_I18N_DEBUG === "1",
-@@ -204,7 +206,7 @@ await i18next
-     },
-     async () => {
-       i18next.services.formatter?.add("money", i18nMoneyFormatter);
--      await initFonts(localStorage.getItem("prLang") ?? undefined);
-+      await initFonts(globalThis.localStorage?.getItem(OFFLINE_LANGUAGE_STORAGE_KEY) ?? undefined);
-     },
-   );
- 
-diff --git a/src/system/settings/settings-language.ts b/src/system/settings/settings-language.ts
-index bd79ff2..30a801f 100644
---- a/src/system/settings/settings-language.ts
-+++ b/src/system/settings/settings-language.ts
-@@ -1,4 +1,5 @@
- import { globalScene } from "#app/global-scene";
-+import { OFFLINE_LANGUAGE_STORAGE_KEY } from "#app/offline-locale";
- import type { SettingsDisplayUiHandler } from "#ui/display-settings-ui-handler";
- import type { LoginRegisterInfoContainerUiHandler } from "#ui/login-register-info-container-ui-handler";
- import i18next from "i18next";
-@@ -17,7 +18,7 @@ const cancelHandler = () => {
- const changeLocaleHandler = (locale: string): boolean => {
-   try {
-     i18next.changeLanguage(locale);
--    localStorage.setItem("prLang", locale);
-+    localStorage.setItem(OFFLINE_LANGUAGE_STORAGE_KEY, locale);
-     cancelHandler();
-     // Reload the whole game to apply the new locale since also some constants are translated
-     window.location.reload();
-diff --git a/src/ui/settings/display-settings-ui-handler.ts b/src/ui/settings/display-settings-ui-handler.ts
-index 0b7527a..21d7543 100644
---- a/src/ui/settings/display-settings-ui-handler.ts
-+++ b/src/ui/settings/display-settings-ui-handler.ts
-@@ -1,3 +1,4 @@
-+import { OFFLINE_LANGUAGE_STORAGE_KEY } from "#app/offline-locale";
- import type { UiMode } from "#enums/ui-mode";
- import { SettingKeys, SettingType } from "#system/settings";
- import { BaseSettingsUiHandler } from "#ui/base-settings-ui-handler";
-@@ -18,7 +19,7 @@ export class SettingsDisplayUiHandler extends BaseSettingsUiHandler {
-      */
-     const languageIndex = this.settings.findIndex(s => s.key === SettingKeys.Language);
-     if (languageIndex >= 0) {
--      const currentLocale = localStorage.getItem("prLang");
-+      const currentLocale = localStorage.getItem(OFFLINE_LANGUAGE_STORAGE_KEY);
-       switch (currentLocale) {
-         case "en":
-           this.settings[languageIndex].options[0] = {
 diff --git a/package.json b/package.json
-index 32e2dcd..a7352f3 100644
+index 953cb42e..4d129848 100644
 --- a/package.json
 +++ b/package.json
 @@ -12,6 +12,8 @@
@@ -104,10 +36,10 @@ index 32e2dcd..a7352f3 100644
      "test": "vitest run",
      "test:profile": "vite-node scripts/profiling/profiling.ts",
 diff --git a/src/constants/app-constants.ts b/src/constants/app-constants.ts
-index c249e14..39b150f 100644
+index 675081a1..5eea38b6 100644
 --- a/src/constants/app-constants.ts
 +++ b/src/constants/app-constants.ts
-@@ -12,10 +12,13 @@ export const isDev = import.meta.env.MODE === "development";
+@@ -12,14 +12,17 @@ export const isDev = import.meta.env.MODE === "development";
   */
  export const isBeta = import.meta.env.MODE === "beta";
  
@@ -120,11 +52,47 @@ index c249e14..39b150f 100644
  export const IS_TEST = import.meta.env.MODE === "test";
  
  export const bypassLogin = import.meta.env.VITE_BYPASS_LOGIN === "1";
-+
+ 
 +/** `true` only in the separate offline build that permanently applies the unlock-all preset. */
 +export const unlockAllBuild = bypassLogin && import.meta.env.VITE_UNLOCK_ALL === "1";
++
+ /** The ratio at which PRSFX sound volumes are played is adjusted since they are sigificantly louder. */
+ export const PRSFX_SOUND_ADJUSTMENT_RATIO = 0.5;
+ 
+diff --git a/src/i18n.ts b/src/i18n.ts
+index a5c0819e..fc14b4b1 100644
+--- a/src/i18n.ts
++++ b/src/i18n.ts
+@@ -1,5 +1,6 @@
+ import { timedEventManager } from "#app/global-event-manager";
+ import { namespaceMap } from "#app/i18n-namespace-map";
++import { normalizeOfflineLocale, OFFLINE_LANGUAGE_STORAGE_KEY } from "#app/offline-locale";
+ import { SUPPORTED_LANGUAGES } from "#system/supported-languages";
+ import { getCachedUrl } from "#utils/fetch-utils";
+ import { toKebabCase } from "#utils/strings";
+@@ -178,9 +179,10 @@ await i18next
+       },
+       defaultNS: "menu",
+       detection: {
+-        lookupLocalStorage: "prLang",
++        lookupLocalStorage: OFFLINE_LANGUAGE_STORAGE_KEY,
+         caches: ["localStorage"],
+         order: ["localStorage", "navigator"],
++        convertDetectedLanguage: normalizeOfflineLocale,
+       },
+       ns: nsEn,
+       debug: import.meta.env.VITE_I18N_DEBUG === "1",
+@@ -199,7 +201,7 @@ await i18next
+     },
+     async () => {
+       i18next.services.formatter?.add("money", i18nMoneyFormatter);
+-      await initFonts(localStorage.getItem("prLang") ?? undefined);
++      await initFonts(globalThis.localStorage?.getItem(OFFLINE_LANGUAGE_STORAGE_KEY) ?? undefined);
+     },
+   );
+ 
 diff --git a/src/init/init-manifest.ts b/src/init/init-manifest.ts
-index 54c198d..57b2dd3 100644
+index 54c198d5..57b2dd35 100644
 --- a/src/init/init-manifest.ts
 +++ b/src/init/init-manifest.ts
 @@ -1,7 +1,7 @@
@@ -137,27 +105,27 @@ index 54c198d..57b2dd3 100644
  } catch (err) {
    // Manifest not found (likely local build or path error on live)
 diff --git a/src/system/game-data.ts b/src/system/game-data.ts
-index 1daa9b6..0a22e04 100644
+index 1d2f95cb..38afd647 100644
 --- a/src/system/game-data.ts
 +++ b/src/system/game-data.ts
-@@ -9,7 +9,7 @@ import { activeOverrides } from "#app/overrides";
+@@ -11,7 +11,7 @@ import { activeOverrides } from "#app/overrides";
  import { isIos } from "#app/touch-controls";
  import { Tutorial } from "#app/tutorial";
- import { speciesEggMoves } from "#balance/moves/egg-moves";
--import { bypassLogin, isBeta, isDev } from "#constants/app-constants";
-+import { bypassLogin, isBeta, isDev, unlockAllBuild } from "#constants/app-constants";
+ import { speciesEggMoves } from "#balance/egg-moves";
+-import { bypassLogin, isBeta, isDev, systemSaveShortKeyMap } from "#constants/app-constants";
++import { bypassLogin, isBeta, isDev, systemSaveShortKeyMap, unlockAllBuild } from "#constants/app-constants";
  import { MAX_STARTER_CANDY_COUNT } from "#constants/game-constants";
  import { EntryHazardTag } from "#data/arena-tag";
- import { getSerializedDailyRunConfig, parseDailySeed } from "#data/daily-seed/daily-seed-utils";
-@@ -50,6 +50,7 @@ import { SettingGamepad, setSettingGamepad, settingGamepadDefaults } from "#syst
- import type { SettingKeyboard } from "#system/settings-keyboard";
- import { setSettingKeyboard } from "#system/settings-keyboard";
+ import { getSerializedDailyRunConfig, parseDailySeed } from "#data/daily-seed-utils";
+@@ -50,6 +50,7 @@ import { ModifierData as PersistentModifierData } from "#system/modifier-data";
+ import { PokemonData } from "#system/pokemon-data";
+ import { RibbonData } from "#system/ribbon-data";
  import { TrainerData } from "#system/trainer-data";
 +import { applyUnlockAllPreset } from "#system/unlock-all";
- import {
-   applySessionVersionMigration,
-   applySettingsVersionMigration,
-@@ -190,6 +191,9 @@ export class GameData {
+ import { applySessionVersionMigration, applySystemVersionMigration } from "#system/version-converter";
+ import { vouchers } from "#system/voucher";
+ import type { DexData, DexEntry } from "#types/dex-data";
+@@ -148,6 +149,9 @@ export class GameData {
      this.unlockPity = [0, 0, 0, 0];
      this.initDexData();
      this.initStarterData();
@@ -167,18 +135,18 @@ index 1daa9b6..0a22e04 100644
    }
  
    public getSystemSaveData(): SystemSaveData {
-@@ -468,6 +472,9 @@ export class GameData {
+@@ -394,6 +398,9 @@ export class GameData {
      this.dexData = Object.assign(this.dexData, systemData.dexData);
      this.consolidateDexData(this.dexData);
      this.defaultDexData = null;
 +    if (unlockAllBuild) {
 +      applyUnlockAllPreset(this);
 +    }
-   }
  
-   private async initSystem(systemDataStr: string, cachedSystemDataStr?: string): Promise<boolean> {
+     // Ensure that the player gender in settings matches the player gender in system data
+     if (systemData.gender !== PlayerGender.UNSET && systemData.gender !== settings.general.playerGender) {
 diff --git a/src/vite.env.d.ts b/src/vite.env.d.ts
-index fdd26e4..d0a93aa 100644
+index 9d563ffe..8b51a5b1 100644
 --- a/src/vite.env.d.ts
 +++ b/src/vite.env.d.ts
 @@ -8,9 +8,10 @@ type HTTP_URL = `http${"" | "s"}://${string}`;
@@ -194,7 +162,7 @@ index fdd26e4..d0a93aa 100644
    readonly VITE_API_BASE_URL?: HTTP_URL;
    readonly VITE_SERVER_URL?: HTTP_URL;
 diff --git a/vite.config.ts b/vite.config.ts
-index edcf963..a973d00 100644
+index ff0ececd..f6f45df8 100644
 --- a/vite.config.ts
 +++ b/vite.config.ts
 @@ -14,7 +14,7 @@ export const sharedConfig: UserConfigFnPromise = async ({ mode }) => {
@@ -205,4 +173,4 @@ index edcf963..a973d00 100644
 +      sourcemap: !["production", "app", "app-unlock-all"].includes(mode),
        chunkSizeWarningLimit: 10000,
        minify: "oxc",
-       rolldownOptions: {
+       manifest: true,

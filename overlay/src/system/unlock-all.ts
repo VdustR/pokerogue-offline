@@ -1,5 +1,5 @@
 import { speciesDataRegistry } from "#app/global-species-data-registry";
-import { speciesEggMoves } from "#balance/moves/egg-moves";
+import { speciesEggMoves } from "#balance/egg-moves";
 import { MAX_STARTER_CANDY_COUNT } from "#constants/game-constants";
 import { AbilityAttr } from "#enums/ability-attr";
 import { Nature } from "#enums/nature";
@@ -7,7 +7,7 @@ import { Passive } from "#enums/passive";
 import { Unlockables } from "#enums/unlockables";
 import { achvs } from "#system/achv";
 import type { GameData } from "#system/game-data";
-import { RibbonData } from "#system/ribbons/ribbon-data";
+import { RibbonData } from "#system/ribbon-data";
 import { vouchers } from "#system/voucher";
 import { getEnumValues } from "#utils/enums";
 

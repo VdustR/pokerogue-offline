@@ -1,11 +1,11 @@
-import { supportedLngs } from "#app/i18n-supported-lngs";
+import { SUPPORTED_LANGUAGES as supportedLngs } from "#system/supported-languages";
 import { normalizeOfflineLocale, OFFLINE_LANGUAGE_STORAGE_KEY, resolveOfflineLocale } from "#app/offline-locale";
 import { createInstance } from "i18next";
 import LanguageDetector from "i18next-browser-languagedetector";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 afterEach(() => {
-  localStorage.removeItem(OFFLINE_LANGUAGE_STORAGE_KEY);
+  window.localStorage.removeItem(OFFLINE_LANGUAGE_STORAGE_KEY);
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -98,17 +98,35 @@ describe("offline locale isolation", () => {
 
   it("tries later system preferences and caches the first supported match", async () => {
     expect(await detectSystemLanguages(["pt-PT", "ja-JP"])).toBe("ja");
-    expect(localStorage.getItem(OFFLINE_LANGUAGE_STORAGE_KEY)).toBe("ja");
+    expect(window.localStorage.getItem(OFFLINE_LANGUAGE_STORAGE_KEY)).toBe("ja");
   });
 
   it("falls back to English when no system preference is supported", async () => {
     expect(await detectSystemLanguages(["pt-PT", "nn-NO"])).toBe("en");
-    expect(localStorage.getItem(OFFLINE_LANGUAGE_STORAGE_KEY)).toBe("en");
+    expect(window.localStorage.getItem(OFFLINE_LANGUAGE_STORAGE_KEY)).toBe("en");
+  });
+
+  it("caches a language selected through the upstream changeLanguage flow", async () => {
+    const i18n = createInstance();
+    await i18n.use(LanguageDetector).init({
+      fallbackLng: "en",
+      supportedLngs,
+      detection: {
+        lookupLocalStorage: OFFLINE_LANGUAGE_STORAGE_KEY,
+        caches: ["localStorage"],
+        order: ["localStorage", "navigator"],
+        convertDetectedLanguage: normalizeOfflineLocale,
+      },
+    });
+    const languageChange = i18n.changeLanguage("zh-Hant");
+    expect(window.localStorage.getItem(OFFLINE_LANGUAGE_STORAGE_KEY)).toBe("zh-Hant");
+    await languageChange;
+    expect(await detectSystemLanguages(["ja-JP"])).toBe("zh-Hant");
   });
 
   it("preserves a previously stored player choice over system preferences", async () => {
-    localStorage.setItem(OFFLINE_LANGUAGE_STORAGE_KEY, "th");
+    window.localStorage.setItem(OFFLINE_LANGUAGE_STORAGE_KEY, "th");
     expect(await detectSystemLanguages(["ja-JP"])).toBe("th");
-    expect(localStorage.getItem(OFFLINE_LANGUAGE_STORAGE_KEY)).toBe("th");
+    expect(window.localStorage.getItem(OFFLINE_LANGUAGE_STORAGE_KEY)).toBe("th");
   });
 });

@@ -1,15 +1,17 @@
 import { speciesDataRegistry } from "#app/global-species-data-registry";
-import { speciesEggMoves } from "#balance/moves/egg-moves";
+import { speciesEggMoves } from "#balance/egg-moves";
 import * as appConstants from "#constants/app-constants";
 import { MAX_STARTER_CANDY_COUNT } from "#constants/game-constants";
 import { AbilityAttr } from "#enums/ability-attr";
 import { Nature } from "#enums/nature";
 import { Passive } from "#enums/passive";
 import { Unlockables } from "#enums/unlockables";
+import { VoucherType } from "#enums/voucher-type";
 import { achvs } from "#system/achv";
-import { RibbonData } from "#system/ribbons/ribbon-data";
+import { GameData } from "#system/game-data";
+import { RibbonData } from "#system/ribbon-data";
 import { applyUnlockAllPreset, getAllRibbonFlags } from "#system/unlock-all";
-import { VoucherType, vouchers } from "#system/voucher";
+import { vouchers } from "#system/voucher";
 import { GameManager } from "#test/framework/game-manager";
 import { getEnumValues } from "#utils/enums";
 import Phaser from "phaser";
@@ -31,6 +33,50 @@ describe("System - Unlock All Preset", () => {
     for (const speciesId of speciesDataRegistry.getAllStarters()) {
       expect(game.scene.gameData.starterData[speciesId].candyCount).toBe(MAX_STARTER_CANDY_COUNT);
     }
+  });
+
+  it("keeps normal-edition progression unchanged when creating and loading saves", () => {
+    vi.spyOn(appConstants, "unlockAllBuild", "get").mockReturnValue(false);
+    game = new GameManager(phaserGame);
+    const gameData = game.scene.gameData;
+    const speciesId = speciesDataRegistry.getAllStarters()[0];
+    expect(gameData.starterData[speciesId].candyCount).toBe(0);
+    gameData.trainerId = 12345;
+    gameData.secretId = 54321;
+    gameData.starterData[speciesId].candyCount = 7;
+    const save = gameData.getSystemSaveData();
+    const serialized = JSON.stringify(save, (_key, value) => typeof value === "bigint" ? value.toString() : value);
+    const loaded = GameData.fromRawSystem(serialized);
+    expect(loaded.trainerId).toBe(12345);
+    expect(loaded.secretId).toBe(54321);
+    expect(loaded.starterData[speciesId].candyCount).toBe(7);
+    expect(loaded.dexData[speciesId].caughtAttr).toBe(gameData.dexData[speciesId].caughtAttr);
+    expect(loaded.unlocks).toEqual(gameData.unlocks);
+    expect(loaded.achvUnlocks).toEqual(gameData.achvUnlocks);
+  });
+
+  it("reapplies unlocks after loading an existing save while preserving identity and timestamps", () => {
+    vi.spyOn(appConstants, "unlockAllBuild", "get").mockReturnValue(false);
+    game = new GameManager(phaserGame);
+    const gameData = game.scene.gameData;
+    gameData.trainerId = 12345;
+    gameData.secretId = 54321;
+    const achievementId = Object.keys(achvs)[0];
+    gameData.achvUnlocks[achievementId] = 1;
+    const save = gameData.getSystemSaveData();
+    const serialized = JSON.stringify(save, (_key, value) => typeof value === "bigint" ? value.toString() : value);
+    vi.spyOn(appConstants, "unlockAllBuild", "get").mockReturnValue(true);
+    const loaded = GameData.fromRawSystem(serialized);
+    expect(loaded.trainerId).toBe(12345);
+    expect(loaded.secretId).toBe(54321);
+    expect(loaded.achvUnlocks[achievementId]).toBe(1);
+    for (const speciesId of speciesDataRegistry.getAllStarters()) {
+      expect(loaded.starterData[speciesId].candyCount).toBe(MAX_STARTER_CANDY_COUNT);
+      expect(loaded.dexData[speciesId].ribbons.getRibbons()).toBe(getAllRibbonFlags());
+    }
+    const firstUnlocks = { ...loaded.achvUnlocks };
+    applyUnlockAllPreset(loaded, 999);
+    expect(loaded.achvUnlocks).toEqual(firstUnlocks);
   });
 
   it("unlocks every supported progression flag without replacing existing save data", () => {
