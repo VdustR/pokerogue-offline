@@ -6,6 +6,7 @@ import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.res.Configuration;
 import android.graphics.Color;
+import android.graphics.Insets;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -258,6 +259,20 @@ public final class MainActivity extends Activity {
                     || view.getPaddingBottom() != bottom
             ) {
                 view.setPadding(left, top, right, bottom);
+            }
+            // Native padding owns the cutout for the canvas and fixed touch controls.
+            // Forward a zero value so WebView also receives updates when the cutout moves.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                return new WindowInsets.Builder(windowInsets)
+                    .setDisplayCutout(null)
+                    .setInsets(WindowInsets.Type.displayCutout(), Insets.NONE)
+                    .build();
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                return new WindowInsets.Builder(windowInsets).setDisplayCutout(null).build();
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                return windowInsets.consumeDisplayCutout();
             }
             return windowInsets;
         });

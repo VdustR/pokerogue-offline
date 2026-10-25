@@ -100,7 +100,9 @@ jobs:
 
       - name: Apply fail-closed offline overlay
         if: steps.release.outputs.should_build == 'true'
-        run: bash builder/scripts/apply-overlay.sh upstream
+        run: |
+          pnpm --dir builder test:safe-area
+          bash builder/scripts/apply-overlay.sh upstream
 
       - name: Verify types and complete upstream tests
         if: steps.release.outputs.should_build == 'true'
