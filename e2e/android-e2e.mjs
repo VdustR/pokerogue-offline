@@ -246,12 +246,22 @@ try {
     } catch {
       networkBlocked = true;
     }
+    const probe = document.createElement("div");
+    probe.style.padding = "env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)";
+    document.body.append(probe);
+    const probeStyle = getComputedStyle(probe);
+    const safeAreaInsets = [probeStyle.paddingTop, probeStyle.paddingRight, probeStyle.paddingBottom, probeStyle.paddingLeft];
+    probe.remove();
+    const bodyStyle = getComputedStyle(document.body);
     return {
       canvasCount: document.querySelectorAll("canvas").length,
       detectedLanguage: localStorage.getItem("pokerogueOfflineLang"),
       networkBlocked,
       navigatorLanguages: navigator.languages,
       origin: location.origin,
+      safeAreaInsets,
+      bodyPadding: [bodyStyle.paddingTop, bodyStyle.paddingRight, bodyStyle.paddingBottom, bodyStyle.paddingLeft],
+      viewport: { width: innerWidth, height: innerHeight, dpr: devicePixelRatio },
     };
   })()`);
 
@@ -266,6 +276,18 @@ try {
   const usesUserLandscape = activityState.includes("requestedOrientation=SCREEN_ORIENTATION_USER_LANDSCAPE");
   const navigationBarHidden = allInsetsHidden(windowState, "navigationBars");
   const statusBarHidden = allInsetsHidden(windowState, "statusBars");
+  const cutout = windowState.match(/mDisplayCutout=DisplayCutout\{insets=Rect\((\d+), (\d+) - (\d+), (\d+)\)/);
+  const display = windowState.match(/\bcur=(\d+)x(\d+)/);
+  const cutoutInsets = cutout ? cutout.slice(1).map(Number) : [0, 0, 0, 0];
+  const hasCutout = cutoutInsets.some(value => value > 0);
+  const { width, height, dpr } = initialState.viewport;
+  const nativeViewportFits = Boolean(display)
+    && Math.abs(width - (Number(display[1]) - cutoutInsets[0] - cutoutInsets[2]) / dpr) < 2
+    && Math.abs(height - (Number(display[2]) - cutoutInsets[1] - cutoutInsets[3]) / dpr) < 2;
+  const safeAreaAppliedOnce = initialState.safeAreaInsets.every(value => value === "0px")
+    && initialState.bodyPadding.every(value => value === "0px")
+    && nativeViewportFits
+    && (process.env.POKEROGUE_E2E_EXPECT_CUTOUT !== "1" || hasCutout);
   const audioProbeStarted = await evaluate(cdp, `(async () => {
     const context = new AudioContext();
     const oscillator = context.createOscillator();
@@ -309,6 +331,7 @@ try {
     || !usesUserLandscape
     || !navigationBarHidden
     || !statusBarHidden
+    || !safeAreaAppliedOnce
     || !audioPlayingBeforeExit
     || !exitConfirmationShown
     || !exitConfirmationDismissed
@@ -330,6 +353,9 @@ try {
         navigationBarHidden,
         pageErrors,
         persisted,
+        cutoutInsets,
+        nativeViewportFits,
+        safeAreaAppliedOnce,
         statusBarHidden,
         usesUserLandscape,
       })}`,
@@ -337,7 +363,7 @@ try {
   }
 
   console.log(
-    `Android E2E passed for ${packageName}: language=${initialState.detectedLanguage}, local save persisted, network was blocked, system bars were hidden, user landscape was honored, Back confirmation canceled safely, and confirmed exit removed the task and stopped audio.`,
+    `Android E2E passed for ${packageName}: language=${initialState.detectedLanguage}, cutout=${JSON.stringify(cutoutInsets)}, native safe area applied once, local save persisted, network was blocked, system bars were hidden, user landscape was honored, Back confirmation canceled safely, and confirmed exit removed the task and stopped audio.`,
   );
 } finally {
   cdp?.close();

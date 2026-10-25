@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "test:safe-area": "node --test scripts/verify-upstream-safe-area.test.mjs",
     "e2e:android": "node e2e/android-e2e.mjs",
     "e2e:electron": "node e2e/electron-e2e.mjs",
     "e2e:electron-security": "node e2e/electron-security-e2e.mjs",
